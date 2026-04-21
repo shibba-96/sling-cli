@@ -2203,3 +2203,9 @@
   run: 'sling run -d -p cmd/sling/tests/pipelines/p.27.adjust_column_type_expand.yaml'
   output_contains:
     - 'SUCCESS: adjust_column_type correctly expanded varchar and decimal columns'
+
+- id: 230
+  name: Run sling with zipped CSV source and custom options
+  run: 'sling run --src-stream file://cmd/sling/tests/files/test9.csv.zip --src-options ''{ delimiter: ";" }'' --stdout'
+  output_contains:
+    - 'col1,col2,col3'
