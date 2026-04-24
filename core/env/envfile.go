@@ -140,8 +140,14 @@ func LoadDotEnvSling() map[string]string {
 	if err != nil {
 		return dotEnvMap.Items()
 	}
+	return LoadDotEnvSlingFrom(cwd)
+}
 
-	dotEnvPath := path.Join(cwd, ".env.sling")
+// LoadDotEnvSlingFrom reads a `.env.sling` file from the specified directory
+// and injects its key=value pairs into os environment variables.
+// Existing env vars are not overwritten.
+func LoadDotEnvSlingFrom(dir string) map[string]string {
+	dotEnvPath := path.Join(dir, ".env.sling")
 	bytes, err := os.ReadFile(dotEnvPath)
 	if err != nil {
 		return dotEnvMap.Items() // file doesn't exist or can't be read
