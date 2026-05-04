@@ -2251,7 +2251,9 @@
 # a postgis/postgis container and exports the POSTGIS connection for this run.
 - id: 235
   name: 'PostGIS geometry replication preserves geometry type (issue 732)'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/postgis/p.41.postgis_geometry.yaml'
+  run: |
+    cd /Users/fritz/Projects/sling-workspace/sling-cli/cmd/sling/tests/pipelines/postgis
+    bash run_docker_test.sh
   group: postgis
   output_contains:
     - 'Target geom column data_type=USER-DEFINED, udt_name=geometry'
