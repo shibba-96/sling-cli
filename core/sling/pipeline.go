@@ -200,6 +200,17 @@ func (pl *Pipeline) Execute() (err error) {
 	// Execute each step
 	var lastErr error
 	for i := 0; i < len(pl.steps); i++ {
+		// honor context cancellation (e.g., SLING_TIMEOUT deadline) between steps
+		if pl.Context != nil {
+			select {
+			case <-pl.Context.Ctx.Done():
+				if lastErr == nil {
+					lastErr = g.Error("pipeline cancelled: %s", pl.Context.Ctx.Err())
+				}
+			default:
+			}
+		}
+
 		step := pl.steps[i]
 		step.SetContext(pl.Context) // update with latest context
 
@@ -317,6 +328,10 @@ func (pse *PipelineStepExecution) Execute(skip bool) (err error) {
 			if pse.Context() != nil {
 				select {
 				case <-pse.Context().Ctx.Done():
+					if isTimeoutDeadlinePassed(pse.Context()) {
+						pse.Status = ExecStatusTimedOut
+					}
+					pse.StateSet()
 					return
 				case <-ticker5s.C:
 					pse.StateSet()
@@ -369,6 +384,11 @@ retry:
 	// Handle errors
 	if err != nil {
 		pse.Err = err
+		// classify as timed-out if the step ended after the configured SLING_TIMEOUT deadline
+		if isTimeoutDeadlinePassed(pse.Context()) {
+			pse.Status = ExecStatusTimedOut
+			return g.Error(err, "step timed-out: %s", pse.Step.ID())
+		}
 		pse.Status = ExecStatusError
 		return g.Error(err, "error executing step: %s", pse.Step.ID())
 	}

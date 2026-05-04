@@ -610,7 +610,7 @@ func (fs *BaseFileSysClient) ReadDataflow(url string, cfg ...iop.FileStreamConfi
 	}
 
 	if strings.HasSuffix(strings.ToLower(url), ".zip") {
-		localFs, err := NewFileSysClient(dbio.TypeFileLocal)
+		localFs, err := NewFileSysClient(dbio.TypeFileLocal, g.MapToKVArr(fs.Props())...)
 		if err != nil {
 			return df, g.Error(err, "could not initialize localFs")
 		}

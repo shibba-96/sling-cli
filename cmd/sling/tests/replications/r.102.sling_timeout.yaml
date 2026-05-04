@@ -1,0 +1,21 @@
+# Test SLING_TIMEOUT triggers on a long-running replication.
+# Streams a very large generate_series so the run cannot finish before the
+# 0.1 minute (6s) timeout fires.
+
+source: postgres
+target: postgres
+
+defaults:
+  mode: full-refresh
+
+streams:
+  test_sling_timeout:
+    sql: |
+      SELECT
+        i AS id,
+        md5(i::text) AS hash_a,
+        md5((i + 1)::text) AS hash_b,
+        md5((i + 2)::text) AS hash_c,
+        repeat('x', 1000) AS padding
+      FROM generate_series(1, 200000000) AS s(i)
+    object: public.test_sling_timeout

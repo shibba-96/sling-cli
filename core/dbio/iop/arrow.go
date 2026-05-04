@@ -360,7 +360,11 @@ type ArrowWriter struct {
 	rowsBuffered int
 }
 
-func NewArrowWriter(w io.Writer, columns Columns) (a *ArrowWriter, err error) {
+// NewArrowWriter creates a new Arrow IPC file writer. Extra options (e.g.
+// ipc.WithZstd(), ipc.WithLZ4(), ipc.WithCompressConcurrency(n)) are appended
+// after the default schema and allocator options and forwarded to
+// ipc.NewFileWriter.
+func NewArrowWriter(w io.Writer, columns Columns, opts ...ipc.Option) (a *ArrowWriter, err error) {
 
 	// set minimum decimal precision/scale
 	for i, col := range columns {
@@ -379,7 +383,8 @@ func NewArrowWriter(w io.Writer, columns Columns) (a *ArrowWriter, err error) {
 	a.arrowSchema = ColumnsToArrowSchema(columns)
 
 	// Create arrow file writer
-	writer, err := ipc.NewFileWriter(w, ipc.WithSchema(a.arrowSchema), ipc.WithAllocator(a.mem))
+	writerOpts := append([]ipc.Option{ipc.WithSchema(a.arrowSchema), ipc.WithAllocator(a.mem)}, opts...)
+	writer, err := ipc.NewFileWriter(w, writerOpts...)
 	if err != nil {
 		return nil, g.Error(err, "could not create arrow writer")
 	}

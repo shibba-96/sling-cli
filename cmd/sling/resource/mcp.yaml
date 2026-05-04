@@ -99,7 +99,7 @@ tools:
     
     **For `action: "query"`**:
     - `connection` (string, required): The name of the database connection to execute the query on
-    - `query` (string, required): The SQL query to execute
+    - `query` (string, required): The SQL query to execute. May also be a `file://` URI pointing to a local `.sql` file (e.g. `file:///abs/path/to/query.sql`); Sling will read the SQL from that file. **Prefer this form when the query is already saved on disk** to avoid re-submitting large SQL as tokens.
     - `description` (string, required): A brief description of the intent and expected result of this query. Explain *why* you are running this query and what the result should tell you. Always provide this when executing a query.
     - `limit` (number, optional): The limit of rows to return (defaults to 100)
     - `transient` (boolean, optional): Whether to use a transient connection (default: false)
@@ -109,6 +109,7 @@ tools:
       *   If a destructive operation (e.g., dropping an object, deleting significant data, altering table structures) is deemed necessary, **DO NOT execute it directly**. Instead, formulate the required SQL query/statement and **return it to the USER for manual review and execution**.
       *   Always use the least number of columns, to minimize computation and the amount of data being retrieved.
       *   Always use the LIMIT clause to minimize the number of rows returned.
+      *   If the SQL is already saved as a file, pass `file:///abs/path/to/query.sql` as `query` instead of inlining the SQL text.
     
     **For `action: "get_columns"`**:
     - `connection` (string, required): The name of the database connection
@@ -198,6 +199,16 @@ tools:
         "query": "SELECT version()",
         "description": "Check the PostgreSQL server version for compatibility verification",
         "transient": true
+      }
+    }
+
+    # Reference a SQL file already saved on disk (avoids resubmitting large SQL)
+    {
+      "action": "query",
+      "input": {
+        "connection": "MY_PG",
+        "query": "file:///Users/me/project/queries/active_users.sql",
+        "description": "Run the saved active_users query"
       }
     }
     ```

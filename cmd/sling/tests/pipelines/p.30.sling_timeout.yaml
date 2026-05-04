@@ -1,0 +1,5 @@
+steps:
+  - type: query
+    id: long_sleep
+    connection: POSTGRES
+    query: select pg_sleep(15)

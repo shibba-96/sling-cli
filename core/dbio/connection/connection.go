@@ -1097,6 +1097,13 @@ func CloseAll() {
 	}
 }
 
+// PurgeCache removes a connection from the cache by hash so the next
+// AsDatabaseContext / AsFileContext / AsAPIContext call rebuilds it.
+// Use this after detecting a dead underlying handle (e.g. "sql: database is closed").
+func PurgeCache(hash string) {
+	connCache.Remove(hash)
+}
+
 // CopyDirect copies directly from cloud files
 // (without passing through dbio)
 func CopyDirect(conn database.Connection, tableFName string, srcFile Connection) (cnt uint64, ok bool, err error) {
