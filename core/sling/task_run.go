@@ -173,8 +173,7 @@ func (t *TaskExecution) Execute() error {
 	} else {
 
 		// check for timeout
-		deadline, ok := t.Context.Map.Get("timeout-deadline")
-		if ok && cast.ToInt64(deadline) <= (time.Now().Unix()+1) {
+		if isTimeoutDeadlinePassed(t.Context) {
 			t.SetProgress("execution failed (timed-out)")
 			newStatus = ExecStatusTimedOut
 		} else if newStatus != ExecStatusTerminated {
@@ -216,6 +215,16 @@ func (t *TaskExecution) Execute() error {
 	t.Status = newStatus
 
 	return t.Err
+}
+
+// isTimeoutDeadlinePassed reports whether SLING_TIMEOUT was configured and has elapsed.
+// Returns false when no deadline was set or when it has not yet been reached.
+func isTimeoutDeadlinePassed(c *g.Context) bool {
+	if c == nil {
+		return false
+	}
+	deadline, ok := c.Map.Get("timeout-deadline")
+	return ok && cast.ToInt64(deadline) <= (time.Now().Unix()+1)
 }
 
 func (t *TaskExecution) ExecuteHooks(stage HookStage) (err error) {

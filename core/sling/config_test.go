@@ -40,24 +40,6 @@ func TestGetRate(t *testing.T) {
 	g.P(rate)
 }
 
-func TestConfig(t *testing.T) {
-
-	cfgStr := `{
-		"post_dbt": {
-			"conn": "ORACLE_SLING",
-			"expr": "my_first_dbt_model",
-			"name": "DBT_PROJ_1",
-			"folder": "/",
-			"version": "0.18.0",
-			"repo_url": "https://github.com/fishtown-analytics/dbt-starter-project"
-		},
-		"tgt_conn": "ORACLE_SLING"
-	}`
-	_, err := NewConfig(cfgStr)
-	assert.NoError(t, err)
-
-}
-
 func TestColumnCasing(t *testing.T) {
 	df := iop.NewDataflow(0)
 

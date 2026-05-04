@@ -891,7 +891,6 @@ func setTimeout(values ...string) (deadline time.Time) {
 		// only process first non-empty value
 		duration := time.Duration(cast.ToFloat64(timeout) * float64(time.Minute))
 		parent, cancel := context.WithTimeout(context.Background(), duration)
-		_ = cancel
 
 		ctx = g.NewContext(parent) // overwrite global context
 		time.AfterFunc(duration-time.Second, func() {
@@ -901,9 +900,9 @@ func setTimeout(values ...string) (deadline time.Time) {
 				content, _ := os.ReadFile(filePath)
 				env.Println(string(content))
 				panic(g.F("SLING_TIMEOUT = %s mins reached!", timeout))
-			} else {
-				g.Warn("SLING_TIMEOUT = %s mins reached!", timeout)
 			}
+			g.Warn("SLING_TIMEOUT = %s mins reached!", timeout)
+			cancel()
 		})
 
 		// set deadline for status setting later

@@ -2204,7 +2204,43 @@
   output_contains:
     - 'SUCCESS: adjust_column_type correctly expanded varchar and decimal columns'
 
+# Platform CLI: exercises `sling project jobs/exec/files/connections` via a
+# self-contained pipeline that runs each command and asserts against stdout.
+# Relies on SLING_PROJECT_TOKEN being set (typically via ~/.sling/env.yaml).
 - id: 230
+  name: 'sling project CLI (jobs/exec/files/connections)'
+  run: 'sling run -p cmd/sling/tests/pipelines/p.28.platform_cli.yaml'
+  output_contains:
+    - 'Platform CLI: all checks passed'
+
+# sling agent service subcommand — cross-platform OS service management.
+# Uses a pipeline so we can assert against the combined stdout/stderr of each
+# help command and the install-without-key error path in one go.
+- id: 231
+  name: 'sling agent service CLI (help outputs + install error path)'
+  run: 'sling run -p cmd/sling/tests/pipelines/p.29.agent_service_cli.yaml'
+  output_contains:
+    - 'Agent Service: all checks passed'
+
+- id: 232
+  name: 'SLING_TIMEOUT triggers on long-running pipeline query step'
+  run: 'sling run -p cmd/sling/tests/pipelines/p.30.sling_timeout.yaml'
+  env:
+    SLING_TIMEOUT: '0.1'
+  err: true
+  output_contains:
+    - 'SLING_TIMEOUT = 0.1 mins reached!'
+
+- id: 233
+  name: 'SLING_TIMEOUT triggers on long-running postgres-to-postgres replication'
+  run: 'sling run -r cmd/sling/tests/replications/r.102.sling_timeout.yaml'
+  env:
+    SLING_TIMEOUT: '0.1'
+  err: true
+  output_contains:
+    - 'SLING_TIMEOUT = 0.1 mins reached!'
+
+- id: 234
   name: Run sling with zipped CSV source and custom options
   run: 'sling run --src-stream file://cmd/sling/tests/files/test9.csv.zip --src-options ''{ delimiter: ";" }'' --stdout'
   output_contains:

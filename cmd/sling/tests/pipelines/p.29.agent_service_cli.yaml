@@ -1,0 +1,46 @@
+steps:
+  - log: '=== Agent Service: `sling agent service --help` lists all subcommands ==='
+
+  - id: svc_help
+    command: sling agent service --help
+
+  - check: 'contains(state.svc_help.output.combined, "manage the sling agent as an OS service")'
+    failure_message: 'service --help missing description'
+
+  - check: 'contains(state.svc_help.output.combined, "install") && contains(state.svc_help.output.combined, "uninstall") && contains(state.svc_help.output.combined, "start") && contains(state.svc_help.output.combined, "stop") && contains(state.svc_help.output.combined, "restart") && contains(state.svc_help.output.combined, "status") && contains(state.svc_help.output.combined, "log")'
+    failure_message: 'service --help missing one of the seven expected subcommands'
+
+  - log: '=== Agent Service: `install --help` shows --user and --key flags ==='
+
+  - id: svc_install_help
+    command: sling agent service install --help
+
+  - check: 'contains(state.svc_install_help.output.combined, "register the agent with the OS service manager")'
+    failure_message: 'install --help missing description'
+
+  - check: 'contains(state.svc_install_help.output.combined, "--user") && contains(state.svc_install_help.output.combined, "--key") && contains(state.svc_install_help.output.combined, "-k")'
+    failure_message: 'install --help missing --user/--key/-k flags'
+
+  - log: '=== Agent Service: `log --help` shows --follow and --lines flags ==='
+
+  - id: svc_log_help
+    command: sling agent service log --help
+
+  - check: 'contains(state.svc_log_help.output.combined, "print the agent service log")'
+    failure_message: 'log --help missing description'
+
+  - check: 'contains(state.svc_log_help.output.combined, "--follow") && contains(state.svc_log_help.output.combined, "-f") && contains(state.svc_log_help.output.combined, "--lines") && contains(state.svc_log_help.output.combined, "-l")'
+    failure_message: 'log --help missing --follow/-f or --lines/-l flags'
+
+  - log: '=== Agent Service: install without key/env fails with clear error ==='
+
+  - id: svc_install_no_key
+    command: sling agent service install --user
+    env:
+      SLING_AGENT_KEY: ''
+    on_failure: quiet
+
+  - check: 'contains(state.svc_install_no_key.output.combined, "agent key not provided")'
+    failure_message: 'install without key did not surface expected prompt-fallback error'
+
+  - log: '=== Agent Service: all checks passed ==='

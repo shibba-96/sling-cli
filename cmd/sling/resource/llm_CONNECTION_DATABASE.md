@@ -231,10 +231,27 @@ Run read-only SQL queries on database connections:
 
 **Parameters:**
 - `connection` (required) - Database connection name
-- `query` (required) - SQL query to execute
+- `query` (required) - SQL query to execute. Can also be a `file://` URI pointing to a local `.sql` file (e.g. `file:///path/to/query.sql`) — Sling will read the SQL from that file. **Prefer this when the SQL is already saved on disk** to avoid re-submitting large queries as tokens.
 - `description` (optional but strongly recommended) - A brief description of the intent and expected result of this query. Explain *why* you are running this query and what the result should tell you. This is logged for observability so that query activity can be understood in context. **Always provide this when executing a query.**
 - `limit` (optional) - Maximum rows to return (default: 100)
 - `transient` (optional) - Use transient connection (default: false)
+
+#### Referencing a Query File with `file://`
+
+If the SQL query already exists as a file on disk, pass its path as a `file://` URI instead of inlining the SQL. This avoids re-sending large queries through the model context.
+
+```json
+{
+  "action": "query",
+  "input": {
+    "connection": "MY_POSTGRES",
+    "query": "file:///Users/me/project/queries/active_users.sql",
+    "description": "Run the saved active_users query to refresh dashboard inputs"
+  }
+}
+```
+
+The path must be absolute. Sling reads the file and executes its contents as the SQL query. The same read-only restrictions below apply to file-loaded queries.
 
 ### Query Safety and Restrictions
 

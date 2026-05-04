@@ -43,6 +43,12 @@ type ReplicationConfig struct {
 	originalCfg    string
 	maps           replicationConfigMaps // raw maps for validation
 	state          *ReplicationState
+
+	CDCRunner CDCRunner
+}
+
+type CDCRunner interface {
+	NewReadCDCHook() Hook
 }
 
 type replicationConfigMaps struct {
@@ -278,7 +284,7 @@ type Wildcard struct {
 // such as `my_schema.*` or `my_schema.my_prefix_*` or `my_schema.*_my_suffix`
 func (rd *ReplicationConfig) ProcessWildcards() (err error) {
 
-	conn, err := rd.getSourceConnection()
+	conn, err := rd.GetSourceConnection()
 	if err != nil {
 		return g.Error(err, "could not get connection for wildcards: %s", rd.Source)
 	}
@@ -931,8 +937,8 @@ func (rd *ReplicationConfig) DeleteStream(key string) {
 	})
 }
 
-// getSourceConnection returns a database connection to the source
-func (rd *ReplicationConfig) getSourceConnection() (conn connection.ConnEntry, err error) {
+// GetSourceConnection returns a database connection to the source
+func (rd *ReplicationConfig) GetSourceConnection() (conn connection.ConnEntry, err error) {
 	if rd.Source == "" {
 		return conn, g.Error("no source specified")
 	}
@@ -1308,6 +1314,10 @@ func (rd *ReplicationConfig) Compile(cfgOverwrite *Config, selectStreams ...stri
 		return g.Error(err, "could not make runtime state")
 	}
 
+	// build the CDC runner (if shared-reader CDC applies) and inject the
+	// auto-injected read_cdc start hook
+	rd.buildCDCRunner()
+
 	g.Trace("len(selectStreams) = %d, len(matchedStreams) = %d, len(replication.Streams) = %d", len(selectStreams), len(matchedStreams), len(rd.Streams))
 	streamCnt := lo.Ternary(len(selectStreams) > 0, len(matchedStreams), len(rd.Streams))
 
@@ -1315,6 +1325,54 @@ func (rd *ReplicationConfig) Compile(cfgOverwrite *Config, selectStreams ...stri
 		return err
 	}
 	return
+}
+
+// buildCDCRunner scans rd.Tasks for shared-reader-eligible CDC streams and, if
+// any are found, creates a single CDC runner and auto-injects a `read_cdc`
+// start-stage hook attached to it. A replication has exactly one source, so
+// at most one runner is ever needed. Streams in the runner's group also
+// remain in rd.Tasks; the dispatcher uses IsTaskInCDCGroup to skip them from
+// per-stream execution.
+func (rd *ReplicationConfig) buildCDCRunner() {
+	rd.CDCRunner = nil
+
+	var groupKey string
+	var groupTasks []*Config
+
+	isSharedReaderCDC := func(cfg *Config) bool {
+		if cfg == nil || cfg.Mode != ChangeCaptureMode ||
+			(cfg.ReplicationStream != nil && cfg.ReplicationStream.Disabled) {
+			return false
+		}
+
+		switch {
+		case cfg.SrcConn.Type.IsMySQLLike():
+			return true
+		}
+		return false
+	}
+
+	for _, cfg := range rd.Tasks {
+		if !isSharedReaderCDC(cfg) {
+			continue
+		}
+		if groupKey == "" {
+			groupKey = string(cfg.SrcConn.Type) + ":" + cfg.SrcConnMD5()
+			if cfg.SrcConn.Type.IsMySQLLike() {
+				groupKey = "mysql:" + cfg.SrcConnMD5()
+			}
+		}
+		groupTasks = append(groupTasks, cfg)
+	}
+
+	if len(groupTasks) == 0 {
+		return
+	}
+
+	rd.CDCRunner = newCDCRunner(groupKey, groupTasks, rd)
+
+	// inject hook so shared read phase runs before loads
+	rd.startHooks = append(rd.startHooks, Hooks{rd.CDCRunner.NewReadCDCHook()}...)
 }
 
 type ReplicationStreamConfig struct {
@@ -1920,7 +1978,7 @@ func (rd *ReplicationConfig) resolveStreamOrderByFK() error {
 	}
 
 	// Get source connection
-	conn, err := rd.getSourceConnection()
+	conn, err := rd.GetSourceConnection()
 	if err != nil {
 		return g.Error(err, "could not get source connection for FK ordering: %v")
 	}
