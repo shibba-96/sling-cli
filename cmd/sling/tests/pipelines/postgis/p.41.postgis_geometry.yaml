@@ -1,0 +1,88 @@
+# PostGIS geometry replication regression test
+# Verifies that a Postgres geometry source column is replicated to a Postgres
+# target as a real geometry column (not VARCHAR(65500)).
+# Requires: POSTGIS connection (PostgreSQL with postgis extension installed).
+# A self-contained runner is provided at run_docker_test.sh.
+
+steps:
+  # Cleanup any prior state
+  - connection: POSTGIS
+    query: |
+      DROP TABLE IF EXISTS public.postgis_src;
+      DROP TABLE IF EXISTS public.postgis_tgt;
+
+  # Ensure extension exists (idempotent)
+  - connection: POSTGIS
+    query: |
+      CREATE EXTENSION IF NOT EXISTS postgis;
+
+  # Create source table with a geometry column and seed data
+  - connection: POSTGIS
+    query: |
+      CREATE TABLE public.postgis_src (
+        id BIGINT NOT NULL PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+        geom geometry(POINT, 3857)
+      );
+      INSERT INTO public.postgis_src (geom)
+        SELECT ST_POINT(i, i, 3857)
+        FROM GENERATE_SERIES(0, 50, 10) i;
+
+  # Run replication mirroring the configuration from issue #732
+  - replication:
+      source: POSTGIS
+      target: POSTGIS
+
+      defaults:
+        object: '{stream_schema}.{stream_table}'
+        mode: full-refresh
+        columns:
+          geom: geometry
+
+      streams:
+        public.postgis_src:
+          object: public.postgis_tgt
+
+      env:
+        SLING_THREADS: 1
+        SLING_RETRIES: 0
+
+  # Inspect target column type
+  - type: query
+    connection: POSTGIS
+    query: |
+      SELECT data_type, udt_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'postgis_tgt'
+        AND column_name = 'geom'
+    into: target_col
+
+  - type: log
+    message: "Target geom column data_type={store.target_col[0].data_type}, udt_name={store.target_col[0].udt_name}"
+
+  # Verify row count made it through
+  - type: query
+    connection: POSTGIS
+    query: SELECT count(*) AS cnt FROM public.postgis_tgt
+    into: row_count
+
+  - type: log
+    message: "Target row count: {store.row_count[0].cnt}"
+
+  - type: check
+    check: int_parse(store.row_count[0].cnt) == 6
+    message: "Expected 6 rows in target, got {store.row_count[0].cnt}"
+
+  # Bug regression check: target column must be a real geometry, not VARCHAR.
+  - type: check
+    check: store.target_col[0].udt_name == "geometry"
+    message: "Issue #732 regression: target geom column udt_name='{store.target_col[0].udt_name}' (data_type='{store.target_col[0].data_type}'), expected 'geometry'"
+
+  - type: log
+    message: "PostGIS geometry test PASSED (data_type={store.target_col[0].data_type})"
+
+  # Cleanup
+  - connection: POSTGIS
+    query: |
+      DROP TABLE IF EXISTS public.postgis_src;
+      DROP TABLE IF EXISTS public.postgis_tgt;

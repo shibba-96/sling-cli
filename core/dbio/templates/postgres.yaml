@@ -722,6 +722,8 @@ native_type_map:
   varchar: text
   xid: string
   xml: string
+  geometry: geometry
+  geography: geometry
 
 
 general_type_map:
@@ -732,6 +734,7 @@ general_type_map:
   datetime: timestamp
   decimal: numeric
   float: "double precision"
+  geometry: geometry
   integer: integer
   json: jsonb
   smallint: smallint

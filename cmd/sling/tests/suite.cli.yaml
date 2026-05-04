@@ -2245,3 +2245,16 @@
   run: 'sling run --src-stream file://cmd/sling/tests/files/test9.csv.zip --src-options ''{ delimiter: ";" }'' --stdout'
   output_contains:
     - 'col1,col2,col3'
+
+# PostGIS geometry replication preserves geometry type on target (issue #732).
+# Self-contained: cmd/sling/tests/pipelines/postgis/run_docker_test.sh spins up
+# a postgis/postgis container and exports the POSTGIS connection for this run.
+- id: 235
+  name: 'PostGIS geometry replication preserves geometry type (issue 732)'
+  run: 'sling run -d -p cmd/sling/tests/pipelines/postgis/p.41.postgis_geometry.yaml'
+  group: postgis
+  output_contains:
+    - 'Target geom column data_type=USER-DEFINED, udt_name=geometry'
+    - 'Target row count: 6'
+    - 'PostGIS geometry test PASSED'
+    - 'execution succeeded'

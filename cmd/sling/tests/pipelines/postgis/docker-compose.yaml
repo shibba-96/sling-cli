@@ -1,0 +1,19 @@
+# Self-contained PostGIS environment
+# Spins up a PostGIS-enabled Postgres so the pipeline test can run
+# without depending on an external POSTGIS connection.
+
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: sling-test-postgis
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgis_test
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgis_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
