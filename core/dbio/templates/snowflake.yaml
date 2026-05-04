@@ -165,8 +165,7 @@ core:
       SELECT * FROM (
         SELECT *, ROW_NUMBER() OVER (PARTITION BY {pk_fields} ORDER BY _SLING_CDC_SEQ DESC) as _rn
         FROM {src_table}
-        WHERE _SLING_SYNCED_OP != 'D'
-      ) sub WHERE _rn = 1
+      ) sub WHERE _rn = 1 AND _SLING_SYNCED_OP != 'D'
     ) src
     ON ({src_tgt_pk_equal})
     WHEN MATCHED THEN UPDATE SET {set_fields}

@@ -204,6 +204,10 @@ var (
 		g.Warn("use the official release of sling-cli to use CDC mode")
 		return nil
 	}
+
+	newCDCRunner = func(_ string, _ []*Config, _ *ReplicationConfig) CDCRunner {
+		panic("use the official release of sling-cli to use CDC mode")
+	}
 )
 
 func getIncrementalValueViaDB(cfg *Config, tgtConn database.Connection, srcConnType dbio.Type) (err error) {
