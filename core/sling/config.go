@@ -206,7 +206,7 @@ func (cfg *Config) Unmarshal(cfgStr string) (err error) {
 	}()
 
 	// expand variables
-	cfgStr = expandEnvVars(cfgStr)
+	cfgStr = env.ExpandEnvVars(cfgStr)
 
 	cfgBytes := []byte(cfgStr)
 	_, errStat := os.Stat(cfgStr)
@@ -1644,7 +1644,7 @@ type CDCOptions struct {
 	SnapshotRunDuration *string `json:"snapshot_run_duration,omitempty" yaml:"snapshot_run_duration,omitempty"`
 
 	// Batching
-	RunMaxEvents   *int `json:"run_max_events,omitempty" yaml:"run_max_events,omitempty"`
+	RunMaxEvents   *int    `json:"run_max_events,omitempty" yaml:"run_max_events,omitempty"`
 	RunMaxDuration *string `json:"run_max_duration,omitempty" yaml:"run_max_duration,omitempty"`
 
 	// Delete behavior
@@ -1834,8 +1834,8 @@ var TargetDBOptionsDefault = TargetOptions{
 }
 
 var CDCOptionsDefault = CDCOptions{
-	RunMaxEvents:         g.Int(100000),
-	RunMaxDuration:       g.String("10m"),
+	RunMaxEvents:      g.Int(100000),
+	RunMaxDuration:    g.String("10m"),
 	SnapshotStart:     g.String("now"),
 	SoftDelete:        g.Bool(false),
 	RetryAttempts:     g.Int(3),
@@ -2031,17 +2031,6 @@ func castKeyArray(keyI any) (key []string) {
 		return key
 	}
 	return
-}
-
-// expandEnvVars replaces $KEY or ${KEY} with its environment variable value
-// only if the variable is present in the environment.
-// If not present, $KEY or ${KEY} will remain in the config text.
-func expandEnvVars(text string) string {
-	for key, value := range g.KVArrToMap(os.Environ()...) {
-		text = strings.ReplaceAll(text, "$"+key+"", value)
-		text = strings.ReplaceAll(text, "${"+key+"}", value)
-	}
-	return text
 }
 
 func cleanConnURL(payload, connURL string) string {

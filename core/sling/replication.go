@@ -44,7 +44,7 @@ type ReplicationConfig struct {
 	maps           replicationConfigMaps // raw maps for validation
 	state          *ReplicationState
 
-	CDCRunner CDCRunner
+	CDCRunner CDCRunner `json:"-"`
 }
 
 type CDCRunner interface {

@@ -774,3 +774,14 @@ func Clean(props map[string]string, line string) string {
 	}
 	return line
 }
+
+// expandEnvVars replaces $KEY or ${KEY} with its environment variable value
+// only if the variable is present in the environment.
+// If not present, $KEY or ${KEY} will remain in the config text.
+func ExpandEnvVars(text string) string {
+	for key, value := range g.KVArrToMap(os.Environ()...) {
+		text = strings.ReplaceAll(text, "$"+key+"", value)
+		text = strings.ReplaceAll(text, "${"+key+"}", value)
+	}
+	return text
+}
