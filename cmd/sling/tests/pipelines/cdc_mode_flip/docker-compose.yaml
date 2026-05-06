@@ -1,0 +1,31 @@
+# Self-contained MySQL source with binlog/GTID enabled for CDC.
+# Mirrors the configuration used in sling/cdc/test_harness/docker/mysql.
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: sling-cdc-flip-mysql
+    ports:
+      - "3399:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: sling_cdc_test
+      MYSQL_DATABASE: cdc_flip_db
+      MYSQL_USER: sling_repl
+      MYSQL_PASSWORD: sling_repl_pass
+    command:
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --binlog-row-metadata=FULL
+      - --expire-logs-days=1
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --log-replica-updates=ON
+    volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-psling_cdc_test"]
+      interval: 3s
+      timeout: 5s
+      retries: 30

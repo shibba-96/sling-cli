@@ -1,0 +1,240 @@
+# Reproduction for the "missing _sling_synced_at/_sling_synced_op/_sling_cdc_seq" error
+#
+# Scenario:
+#   1. Stream runs in mode: change-capture, snapshot completes, CDC merges work.
+#   2. User flips the stream to mode: full-refresh and runs once. The full-refresh
+#      drops + recreates the target table from source columns only — so the three
+#      _sling_* CDC metadata columns are gone.
+#   3. User flips back to mode: change-capture. Existing CDC state (snapshot_complete=true)
+#      sends the run straight into executeCDCChanges. The next merge calls
+#      prepareFinal -> AddMissingColumns -> OptimizeTable, and the
+#      OptimizeTable case-sensitive check fails because the target table is
+#      missing the three columns.
+#
+# Connections required:
+#   MYSQL_CDC_FLIP : provided by run_docker_test.sh (local container at :3399)
+#   SNOWFLAKE      : existing Snowflake conn (see sling conns list)
+#
+# Env vars used by this pipeline:
+#   SF_SCHEMA      : schema to write the test table to (default: PUBLIC)
+#   TGT_TABLE      : table name (default: cdc_flip_test)
+
+env:
+  SOURCE: MYSQL_CDC_FLIP
+  TARGET: SNOWFLAKE
+  SF_SCHEMA: PUBLIC
+  TGT_TABLE: cdc_flip_test
+  # SLING_STATE is required for CDC; the runner script exports it before invoking sling.
+
+steps:
+  # ── 0. Clean slate on both sides ─────────────────────────────────────────
+  - connection: '{env.TARGET}'
+    query: |
+      DROP TABLE IF EXISTS {env.SF_SCHEMA}.{env.TGT_TABLE};
+
+  # SLING_STATE may not exist yet on a first-ever run; ignore failure.
+  - connection: '{env.TARGET}'
+    query: |
+      DELETE FROM {env.SF_SCHEMA}.SLING_STATE WHERE "source_stream" = 'cdc_flip_db.cdc_source';
+    on_failure: quiet
+
+  - connection: '{env.SOURCE}'
+    query: |
+      DROP TABLE IF EXISTS cdc_flip_db.cdc_source;
+      CREATE TABLE cdc_flip_db.cdc_source (
+        id INT NOT NULL PRIMARY KEY,
+        name VARCHAR(100),
+        amount INT
+      );
+      INSERT INTO cdc_flip_db.cdc_source (id, name, amount) VALUES
+        (1, 'Alice',   100),
+        (2, 'Bob',     200),
+        (3, 'Charlie', 300);
+
+  # ── 1. Initial snapshot via mode: change-capture ─────────────────────────
+  - replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: change-capture
+        primary_key: [id]
+        object: '{env.SF_SCHEMA}.{env.TGT_TABLE}'
+        change_capture_options:
+          snapshot_start: beginning
+          run_max_events: 100000
+          run_max_duration: 1m
+      streams:
+        cdc_flip_db.cdc_source:
+      env:
+        SLING_THREADS: 1
+    on_failure: abort
+
+  - type: query
+    connection: '{env.TARGET}'
+    query: |
+      SELECT count(*) AS cnt FROM {env.SF_SCHEMA}.{env.TGT_TABLE}
+    into: snap_cnt
+
+  - type: check
+    check: int_parse(store.snap_cnt[0].cnt) == 3
+    failure_message: 'snapshot count mismatch: expected 3, got {store.snap_cnt[0].cnt}'
+
+  - type: log
+    message: 'STEP 1 OK — snapshot loaded 3 rows'
+
+  # ── 2. Generate some CDC events and run change-capture again ─────────────
+  - connection: '{env.SOURCE}'
+    query: |
+      INSERT INTO cdc_flip_db.cdc_source (id, name, amount) VALUES (4, 'Diana', 400);
+      UPDATE cdc_flip_db.cdc_source SET amount = 150 WHERE id = 1;
+
+  - replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: change-capture
+        primary_key: [id]
+        object: '{env.SF_SCHEMA}.{env.TGT_TABLE}'
+        change_capture_options:
+          run_max_events: 100000
+          run_max_duration: 30s
+      streams:
+        cdc_flip_db.cdc_source:
+      env:
+        SLING_THREADS: 1
+    on_failure: abort
+
+  - type: query
+    connection: '{env.TARGET}'
+    query: |
+      SELECT count(*) AS cnt FROM {env.SF_SCHEMA}.{env.TGT_TABLE}
+    into: cdc1_cnt
+
+  - type: query
+    connection: '{env.TARGET}'
+    query: |
+      SELECT amount FROM {env.SF_SCHEMA}.{env.TGT_TABLE} WHERE id = 1
+    into: cdc1_alice
+
+  - type: check
+    check: int_parse(store.cdc1_cnt[0].cnt) == 4
+    failure_message: 'after first cdc round expected 4 rows, got {store.cdc1_cnt[0].cnt}'
+
+  - type: check
+    check: int_parse(store.cdc1_alice[0].amount) == 150
+    failure_message: 'after update expected amount=150 for id=1, got {store.cdc1_alice[0].amount}'
+
+  - type: log
+    message: 'STEP 2 OK — first CDC round merged 1 insert + 1 update'
+
+  # ── 3. Confirm the three CDC metadata columns exist before the flip ──────
+  - type: query
+    connection: '{env.TARGET}'
+    query: |
+      SELECT count(*) AS cnt
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE table_schema = '{env.SF_SCHEMA}'
+        AND table_name = upper('{env.TGT_TABLE}')
+        AND column_name IN ('_SLING_SYNCED_AT', '_SLING_SYNCED_OP', '_SLING_CDC_SEQ')
+    into: meta_before
+
+  - type: check
+    check: int_parse(store.meta_before[0].cnt) == 3
+    failure_message: 'pre-flip: expected 3 _sling_* metadata columns, got {store.meta_before[0].cnt}'
+
+  - type: log
+    message: 'STEP 3 OK — _sling_synced_at / _sling_synced_op / _sling_cdc_seq all present'
+
+  # ── 4. THE FLIP: run the same stream as mode: full-refresh ───────────────
+  # This is "method 2" from Fritz's email. It drops + recreates the Snowflake
+  # table from source columns only, so the three _sling_* columns disappear.
+  - replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+        primary_key: [id]
+        object: '{env.SF_SCHEMA}.{env.TGT_TABLE}'
+      streams:
+        cdc_flip_db.cdc_source:
+      env:
+        SLING_THREADS: 1
+    on_failure: abort
+
+  - type: query
+    connection: '{env.TARGET}'
+    query: |
+      SELECT count(*) AS cnt
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE table_schema = '{env.SF_SCHEMA}'
+        AND table_name = upper('{env.TGT_TABLE}')
+        AND column_name IN ('_SLING_SYNCED_AT', '_SLING_SYNCED_OP', '_SLING_CDC_SEQ')
+    into: meta_after_flip
+
+  - type: log
+    message: 'STEP 4 — after full-refresh flip, _sling_* columns present count = {store.meta_after_flip[0].cnt} (expected 0 — this is the precondition for the bug)'
+
+  # ── 5. Flip BACK to change-capture and generate one more binlog event ───
+  # Existing CDC state still says snapshot_complete=true, so the run goes
+  # straight into executeCDCChanges -> WriteToDb -> prepareFinal -> OptimizeTable
+  # which is where user hits "missing columns: _sling_synced_at, ...".
+  - connection: '{env.SOURCE}'
+    query: |
+      UPDATE cdc_flip_db.cdc_source SET amount = 175 WHERE id = 1;
+
+  - replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: change-capture
+        primary_key: [id]
+        object: '{env.SF_SCHEMA}.{env.TGT_TABLE}'
+        change_capture_options:
+          run_max_events: 100000
+          run_max_duration: 30s
+      streams:
+        cdc_flip_db.cdc_source:
+      env:
+        SLING_THREADS: 1
+    # We expect this to fail today with the missing-columns error.
+    # Once the bug is fixed, this step will succeed and the post-checks
+    # below will validate that the three columns were re-added.
+    on_failure: abort
+
+  # ── 6. Post-fix expectations (only reached after the bug is patched) ─────
+  - type: query
+    connection: '{env.TARGET}'
+    query: |
+      SELECT count(*) AS cnt
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE table_schema = '{env.SF_SCHEMA}'
+        AND table_name = upper('{env.TGT_TABLE}')
+        AND column_name IN ('_SLING_SYNCED_AT', '_SLING_SYNCED_OP', '_SLING_CDC_SEQ')
+    into: meta_after_recapture
+
+  - type: check
+    check: int_parse(store.meta_after_recapture[0].cnt) == 3
+    failure_message: 'after re-capture expected the 3 _sling_* columns to be re-added, got {store.meta_after_recapture[0].cnt}'
+
+  - type: query
+    connection: '{env.TARGET}'
+    query: |
+      SELECT amount FROM {env.SF_SCHEMA}.{env.TGT_TABLE} WHERE id = 1
+    into: cdc2_alice
+
+  - type: check
+    check: int_parse(store.cdc2_alice[0].amount) == 175
+    failure_message: 'after re-capture expected amount=175 for id=1, got {store.cdc2_alice[0].amount}'
+
+  - type: log
+    message: 'STEP 6 OK — bug is fixed: re-capture re-added _sling_* columns and applied the update'
+
+  # ── 7. Cleanup ───────────────────────────────────────────────────────────
+  - connection: '{env.TARGET}'
+    query: |
+      DROP TABLE IF EXISTS {env.SF_SCHEMA}.{env.TGT_TABLE};
+      DELETE FROM {env.SF_SCHEMA}.SLING_STATE WHERE "source_stream" = 'cdc_flip_db.cdc_source';
+
+  - connection: '{env.SOURCE}'
+    query: |
+      DROP TABLE IF EXISTS cdc_flip_db.cdc_source;
