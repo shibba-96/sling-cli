@@ -561,9 +561,10 @@ func TestChunkFunction(t *testing.T) {
 		result, err := fns.chunk(testArray, 3)
 		assert.NoError(t, err)
 
-		// Verify result is a channel
-		chunkedChan, ok := result.(chan []any)
-		assert.True(t, ok, "Result should be a channel")
+		// Verify result is a *ChunkResult and extract its channel
+		chunkResult, ok := result.(*ChunkResult)
+		assert.True(t, ok, "Result should be a *ChunkResult")
+		chunkedChan := chunkResult.Chan
 
 		// Add timeout to prevent test hanging
 		chunks := [][]any{}
@@ -609,9 +610,10 @@ func TestChunkFunction(t *testing.T) {
 		result, err := fns.chunk(q, 4)
 		assert.NoError(t, err)
 
-		// Verify result is a channel
-		chunkedChan, ok := result.(chan []any)
-		assert.True(t, ok, "Result should be a channel")
+		// Verify result is a *ChunkResult and extract its channel
+		chunkResult, ok := result.(*ChunkResult)
+		assert.True(t, ok, "Result should be a *ChunkResult")
+		chunkedChan := chunkResult.Chan
 
 		// Read all chunks
 		chunks := [][]any{}
@@ -658,8 +660,9 @@ func TestChunkFunction(t *testing.T) {
 		result, err := fns.chunk([]any{}, 3)
 		assert.NoError(t, err)
 
-		chunkedChan, ok := result.(chan []any)
-		assert.True(t, ok, "Result should be a channel")
+		chunkResult, ok := result.(*ChunkResult)
+		assert.True(t, ok, "Result should be a *ChunkResult")
+		chunkedChan := chunkResult.Chan
 
 		// Channel should close without sending any chunks
 		chunks := [][]any{}
@@ -680,8 +683,9 @@ func TestChunkFunction(t *testing.T) {
 		result, err := fns.chunk(q, 3)
 		assert.NoError(t, err)
 
-		chunkedChan, ok := result.(chan []any)
-		assert.True(t, ok, "Result should be a channel")
+		chunkResult, ok := result.(*ChunkResult)
+		assert.True(t, ok, "Result should be a *ChunkResult")
+		chunkedChan := chunkResult.Chan
 
 		// Channel should close without sending any chunks
 		chunks := [][]any{}
