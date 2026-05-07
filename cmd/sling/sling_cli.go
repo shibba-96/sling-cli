@@ -202,7 +202,7 @@ var cliRunFlags = []g.Flag{
 
 var cliRun = &g.CliSC{
 	Name:                  "run",
-	Description:           "Execute a run",
+	Description:           "Execute a replication or pipeline run",
 	AdditionalHelpPrepend: "\nSee more examples and configuration details at https://docs.slingdata.io/sling-cli/",
 	Flags:                 cliRunFlags,
 	PosFlags: []g.Flag{
