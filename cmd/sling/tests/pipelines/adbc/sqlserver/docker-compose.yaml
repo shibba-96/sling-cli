@@ -1,0 +1,45 @@
+# Self-contained SQL Server 2022 + SeaweedFS (S3) instances for ADBC pipeline tests.
+#
+# - mssql      : SQL Server 2022 on host port 51444 (avoids clashes with the dev
+#                mpc:51433 / 51443 instances). Used by p.41.adbc_sqlserver.yaml
+#                and run_pipeline.py.
+# - seaweedfs  : S3-compatible object store on host port 18333. Used by run_pipeline.py
+#                only — the Python walkthrough generates parquet files and pushes
+#                them to s3://pipeline/ on this endpoint, then loads them into SQL
+#                Server via ADBC. `weed server -s3` runs anonymous-write by
+#                default; the AWS_ACCESS_KEY_ID env var on the S3 client side is
+#                accepted but not actually checked.
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sling-adbc-mssql
+    ports:
+      - "51444:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "AdbcPipeline123!"
+      MSSQL_PID: "Developer"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'AdbcPipeline123!' -C -Q 'select 1' || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'AdbcPipeline123!' -Q 'select 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: sling-adbc-seaweedfs
+    ports:
+      - "18333:8333"  # S3 API
+      - "19333:9333"  # master (optional, useful for `weed shell`)
+    command: server -s3 -dir=/data
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8333/ >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  seaweedfs_data:

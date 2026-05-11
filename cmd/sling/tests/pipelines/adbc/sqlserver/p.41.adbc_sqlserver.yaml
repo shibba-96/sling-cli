@@ -1,0 +1,74 @@
+# ADBC SQL Server pipeline test (CSV → ADBC).
+#
+# Setup:
+#   1. cd cmd/sling/tests/pipelines/adbc/sqlserver
+#   2. docker compose up -d  (SQL Server 2022 on localhost:51444 + SeaweedFS on 18333)
+#   3. dbc install mssql     (one-time; see https://dbc.columnar.tech)
+#   4. sling conns set MSSQL_ADBC type=sqlserver \
+#        host=localhost port=51444 user=sa password='AdbcPipeline123!' \
+#        database=master encrypt=disable use_adbc=true
+#
+# This pipeline loads a small CSV. See run_pipeline.py for the 100k-row S3 (SeaweedFS) variant
+# that exercises parquet + stream_arrow().
+#
+# Run:
+#   sling run -p cmd/sling/tests/pipelines/adbc/sqlserver/p.41.adbc_sqlserver.yaml --debug
+
+steps:
+  # 1. Write a small CSV inline.
+  - type: write
+    to: file:///tmp/adbc_sqlserver_pipeline.csv
+    content: |
+      id,name,score
+      1,alice,98.5
+      2,bob,82.0
+      3,charlie,75.25
+      4,dana,91.75
+      5,eve,88.0
+
+  # 2. Drop target table if it exists (idempotent re-run).
+  - type: query
+    connection: MSSQL_ADBC
+    query: |
+      if object_id('dbo.adbc_pipeline', 'U') is not null drop table dbo.adbc_pipeline
+
+  # 3. CSV -> SQL Server via ADBC (full-refresh).
+  - replication:
+      source: LOCAL
+      target: MSSQL_ADBC
+      defaults:
+        mode: full-refresh
+      streams:
+        file:///tmp/adbc_sqlserver_pipeline.csv:
+          object: dbo.adbc_pipeline
+
+  - log: "ADBC write completed"
+
+  # 4. Read back via ADBC and verify shape.
+  - type: query
+    connection: MSSQL_ADBC
+    query: select id, name, score from dbo.adbc_pipeline order by id
+    into: rows
+
+  - log: "Loaded rows: {store.rows}"
+
+  - type: check
+    check: length(store.rows) == 5
+    failure_message: "Expected 5 rows, got {length(store.rows)}"
+
+  - type: check
+    check: int_parse(store.rows[0].id) == 1 && store.rows[0].name == "alice"
+    failure_message: "First row mismatch: {store.rows[0]}"
+
+  - type: check
+    check: float_parse(store.rows[4].score) == 88.0
+    failure_message: "Last row score mismatch: {store.rows[4].score}"
+
+  # 5. Cleanup so the test is fully idempotent.
+  - type: query
+    connection: MSSQL_ADBC
+    query: drop table dbo.adbc_pipeline
+
+  - command: rm -f /tmp/adbc_sqlserver_pipeline.csv
+
+  - log: "ADBC SQL Server pipeline test PASSED"
