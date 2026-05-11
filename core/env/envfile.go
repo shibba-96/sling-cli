@@ -227,13 +227,30 @@ func UnsetEnvKeys(keys []string) {
 }
 
 func LoadEnvFile(path string) (ef EnvFile) {
-	bytes, _ := os.ReadFile(path)
+	body, _ := os.ReadFile(path)
+	ef, _ = loadEnvFile(string(body), path)
+	return ef
+}
 
-	ef.Body = string(bytes)
+// loadEnvFile parses YAML env-file content from `body`, expanding ${VAR}
+// references against the current process environment (plus SLING_HOME_DIR
+// when a path is provided), and exports scalar entries from `env:` into
+// os.Environ. `path` is recorded on the returned EnvFile when non-empty.
+func loadEnvFile(body, path string) (ef EnvFile, err error) {
+	ef.Body = body
 	ef.Path = path
 
+	if body == "" {
+		ef.Connections = map[string]map[string]any{}
+		ef.Env = map[string]any{}
+		return ef, nil
+	}
+
 	// expand variables
-	envMap := map[string]any{"SLING_HOME_DIR": HomeDir}
+	envMap := map[string]any{}
+	if path != "" {
+		envMap["SLING_HOME_DIR"] = HomeDir
+	}
 	for _, tuple := range os.Environ() {
 		key := strings.Split(tuple, "=")[0]
 		val := strings.TrimPrefix(tuple, key+"=")
@@ -241,10 +258,8 @@ func LoadEnvFile(path string) (ef EnvFile) {
 	}
 	ef.Body = g.Rmd(ef.Body, envMap)
 
-	err := yaml.Unmarshal([]byte(ef.Body), &ef)
-	if err != nil {
+	if err = yaml.Unmarshal([]byte(ef.Body), &ef); err != nil {
 		err = g.Error(err, "error parsing yaml string")
-		_ = err
 	}
 
 	if ef.Connections == nil {
@@ -256,6 +271,7 @@ func LoadEnvFile(path string) (ef EnvFile) {
 			ef.Env = map[string]any{}
 		} else {
 			ef.Env = ef.Variables // support legacy
+			ef.Variables = nil
 		}
 	}
 
@@ -269,7 +285,7 @@ func LoadEnvFile(path string) (ef EnvFile) {
 			os.Setenv(k, g.CastToString(v))
 		}
 	}
-	return ef
+	return ef, err
 }
 
 func GetEnvFilePath(dir string) string {

@@ -68,7 +68,6 @@ custom_section:
 		"# These connections move data between systems.",
 		"# Production warehouse",
 		"# Staging warehouse",
-		"# Variables shared across runs",
 		"# Custom block we don't manage — must survive untouched.",
 		"custom_section:",
 		"retain: yes",
@@ -81,6 +80,14 @@ custom_section:
 		if !strings.Contains(out, sub) {
 			t.Errorf("expected output to contain %q\n--- got ---\n%s", sub, out)
 		}
+	}
+	// Legacy `variables:` block migrates to `env:` on save; the block contents
+	// survive but the heading comment attached to the renamed key does not.
+	if strings.Contains(out, "variables:") {
+		t.Errorf("expected legacy variables: block to be renamed to env:\n--- got ---\n%s", out)
+	}
+	if !strings.Contains(out, "env:") {
+		t.Errorf("expected env: block after legacy migration\n--- got ---\n%s", out)
 	}
 }
 
