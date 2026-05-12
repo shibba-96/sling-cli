@@ -612,6 +612,9 @@ skipGetState:
 	if err != nil {
 		err = g.Error(err, "Could not ReadFromApi")
 		return
+	} else if len(t.df.Columns) == 1 && t.df.Columns[0].Name == "_sling_queue_only" {
+		t.SetProgress("%d items pushed to queue", t.df.Count())
+		return
 	}
 	defer t.df.Close()
 
@@ -705,6 +708,9 @@ skipGetState:
 	t.df, err = t.ReadFromApi(t.Config, srcConn)
 	if err != nil {
 		err = g.Error(err, "Could not ReadFromApi")
+		return
+	} else if len(t.df.Columns) == 1 && t.df.Columns[0].Name == "_sling_queue_only" {
+		t.SetProgress("%d items pushed to queue", t.df.Count())
 		return
 	}
 	defer t.df.Close()

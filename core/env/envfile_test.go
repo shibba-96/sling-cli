@@ -1,10 +1,199 @@
 package env
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// TestWriteEnvFilePreservesComments verifies that mutating Connections and
+// writing back via WriteEnvFile keeps user comments and unrelated top-level
+// keys intact. This is the analogue of the AI-block preservation test: same
+// Node graft path, exercised through the conns set/unset code path.
+func TestWriteEnvFilePreservesComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.yaml")
+
+	original := `# Sling environment file — managed by you.
+# These connections move data between systems.
+
+connections:
+  # Production warehouse
+  PG_PROD:
+    type: postgres
+    host: db.example.com
+    user: app
+  # Staging warehouse
+  PG_STAGE:
+    type: postgres
+    host: stage.db.example.com
+
+# Variables shared across runs
+variables:
+  region: us-west-2
+
+# Custom block we don't manage — must survive untouched.
+custom_section:
+  retain: yes
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ef := LoadEnvFile(path)
+	ef.Connections["NEW_PG"] = map[string]any{
+		"type": "postgres",
+		"host": "new.db.example.com",
+		"user": "app",
+	}
+	if err := ef.WriteEnvFile(); err != nil {
+		t.Fatalf("WriteEnvFile: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	out := string(got)
+
+	wantSubstrings := []string{
+		"# Sling environment file — managed by you.",
+		"# These connections move data between systems.",
+		"# Production warehouse",
+		"# Staging warehouse",
+		"# Custom block we don't manage — must survive untouched.",
+		"custom_section:",
+		"retain: yes",
+		"PG_PROD:",
+		"PG_STAGE:",
+		"NEW_PG:",
+		"region: us-west-2",
+	}
+	for _, sub := range wantSubstrings {
+		if !strings.Contains(out, sub) {
+			t.Errorf("expected output to contain %q\n--- got ---\n%s", sub, out)
+		}
+	}
+	// Legacy `variables:` block migrates to `env:` on save; the block contents
+	// survive but the heading comment attached to the renamed key does not.
+	if strings.Contains(out, "variables:") {
+		t.Errorf("expected legacy variables: block to be renamed to env:\n--- got ---\n%s", out)
+	}
+	if !strings.Contains(out, "env:") {
+		t.Errorf("expected env: block after legacy migration\n--- got ---\n%s", out)
+	}
+}
+
+// TestWriteEnvFilePreservesInnerConnectionComments verifies that comments
+// *inside* a connection mapping (above and trailing individual fields) survive
+// mutating an unrelated field. This is the harder case the recursive merge is
+// designed for: per-field HeadComment/LineComment inside nested mappings.
+func TestWriteEnvFilePreservesInnerConnectionComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.yaml")
+
+	original := `connections:
+  PG_PROD:
+    type: postgres
+    # primary writer
+    host: db.example.com # main DSN
+    user: app
+    # rotated quarterly
+    password: ${PG_PASSWORD}
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ef := LoadEnvFile(path)
+	// Mutate an unrelated field — the user changes.
+	ef.Connections["PG_PROD"]["user"] = "app_v2"
+	if err := ef.WriteEnvFile(); err != nil {
+		t.Fatalf("WriteEnvFile: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	out := string(got)
+
+	for _, sub := range []string{
+		"# primary writer",
+		"# main DSN",
+		"# rotated quarterly",
+		"user: app_v2",
+	} {
+		if !strings.Contains(out, sub) {
+			t.Errorf("expected output to contain %q\n--- got ---\n%s", sub, out)
+		}
+	}
+}
+
+// TestWriteEnvFileAssistRoundTrip verifies that the assist profile, stored as
+// env.SLING_ASSIST (an inline map), gets serialized into env: and round-trips
+// cleanly across Load/Save. The assist package owns the typed shape; from
+// EnvFile's POV it's just a nested map under env.
+func TestWriteEnvFileAssistRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.yaml")
+
+	ef := LoadEnvFile(path)
+	ef.Path = path
+	if ef.Env == nil {
+		ef.Env = map[string]any{}
+	}
+	ef.Env["SLING_ASSIST"] = map[string]any{
+		"agent":          "claude",
+		"hint_in_errors": true,
+	}
+	if err := ef.WriteEnvFile(); err != nil {
+		t.Fatalf("WriteEnvFile: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	out := string(got)
+
+	for _, sub := range []string{"env:", "SLING_ASSIST:", "agent: claude", "hint_in_errors: true"} {
+		if !strings.Contains(out, sub) {
+			t.Errorf("expected output to contain %q\n--- got ---\n%s", sub, out)
+		}
+	}
+
+	// Round-trip: load again, mutate, save, ensure env: stays a single block.
+	ef2 := LoadEnvFile(path)
+	raw, ok := ef2.Env["SLING_ASSIST"]
+	if !ok {
+		t.Fatalf("expected env.SLING_ASSIST after reload, got %+v", ef2.Env)
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected env.SLING_ASSIST to be map[string]any, got %T", raw)
+	}
+	if m["agent"] != "claude" {
+		t.Fatalf("expected agent=claude after reload, got %+v", m)
+	}
+	m["hint_in_errors"] = false
+	ef2.Env["SLING_ASSIST"] = m
+	if err := ef2.WriteEnvFile(); err != nil {
+		t.Fatalf("second WriteEnvFile: %v", err)
+	}
+	got, _ = os.ReadFile(path)
+	out = string(got)
+	// Match the start-of-line env: header, regardless of whether it's the very
+	// first line (no preceding newline) or further down.
+	headers := strings.Count(out, "\nenv:") + boolToInt(strings.HasPrefix(out, "env:"))
+	if headers != 1 {
+		t.Errorf("expected exactly one env: block, got\n%s", out)
+	}
+	if !strings.Contains(out, "hint_in_errors: false") {
+		t.Errorf("SLING_ASSIST block did not update on second save\n--- got ---\n%s", out)
+	}
+}
 
 func TestParseDotEnv(t *testing.T) {
 	tests := []struct {

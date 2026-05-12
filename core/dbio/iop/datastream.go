@@ -1359,6 +1359,9 @@ func (ds *Datastream) ConsumeCsvReaderChl(readerChn chan *ReaderReady) (err erro
 	nextFunc := func(it *Iterator) bool {
 
 	processNext:
+		if r == nil {
+			return false
+		}
 		row, err := r.Read()
 		if err == io.EOF {
 			c.File.Close()
@@ -1372,6 +1375,8 @@ func (ds *Datastream) ConsumeCsvReaderChl(readerChn chan *ReaderReady) (err erro
 				if err != nil {
 					it.ds.Context.CaptureErr(g.Error(err, "Error getting next reader"))
 					return false
+				} else if r == nil {
+					continue
 				}
 
 				// analyze header for subsequent CSVs, since c.getReader() injects header line if missing

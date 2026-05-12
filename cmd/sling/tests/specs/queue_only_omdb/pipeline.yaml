@@ -1,0 +1,56 @@
+env:
+  OMDB_API_KEY: ${OMDB_API_KEY}
+  OUT_DIR: /tmp/queue_only_omdb_test
+
+steps:
+  - type: log
+    message: "=== Queue-only OMDB pipeline starting ==="
+
+  # clean any previous run
+  - type: delete
+    location: local/{env.OUT_DIR}/
+    recursive: true
+
+  # Inline replication: select both endpoints. `search` is queue_only — it
+  # runs but produces no records (writes imdbIDs into queue.imdb_ids). `details`
+  # iterates that queue and writes a row per movie. The dependency walker
+  # orders search before details automatically (HasUpstreams).
+  - replication:
+      source: OMDB_QUEUE_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}.json"
+      streams:
+        search: {}
+        details: {}
+
+  # Verify the consumer produced output. We read the JSON body as a string and
+  # do structural checks via string matching — sufficient proof that the
+  # queue_only producer populated the queue and the consumer iterated it.
+  - type: read
+    from: local/{env.OUT_DIR}/details.json
+    into: details_body
+
+  - type: log
+    message: "details file size (bytes): {length(store.details_body)}"
+
+  - type: check
+    check: 'length(store.details_body) > 100'
+    failure_message: "consumer endpoint produced no/empty output — queue_only producer likely did not populate the queue"
+
+  # Sanity: the JSON output should contain imdbID / Title fields, which only
+  # appear if the consumer iterated over the queue successfully.
+  - type: check
+    check: 'contains(store.details_body, "imdbID") && contains(store.details_body, "Title")'
+    failure_message: "details output missing expected imdbID / Title fields"
+
+  # Confirm at least one well-known Batman-related imdb id appears in the
+  # combined detail output (the Tim Burton 1989 film). Loose enough to survive
+  # OMDB ranking changes, but proves real records were fetched through the queue.
+  - type: check
+    check: 'contains(store.details_body, "tt0096895")'
+    failure_message: "expected Batman (1989) imdbID tt0096895 in output"
+
+  - type: log
+    message: "=== Queue-only OMDB pipeline passed ==="

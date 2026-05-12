@@ -1,0 +1,162 @@
+package iop
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+// startFakeStreamConsumer simulates the part of ds.Start()'s row loop
+// this test cares about: it consumes ds.pauseChan / ds.unpauseChan
+// exactly like the real loop. rowDelay simulates how long it takes the
+// stream to enter its row loop after being attached to the dataflow
+// (e.g. HTTP RTT + decode time for a slow API source).
+func startFakeStreamConsumer(t *testing.T, ds *Datastream, rowDelay time.Duration, stop <-chan struct{}) <-chan struct{} {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case <-time.After(rowDelay):
+		case <-stop:
+			return
+		}
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ds.pauseChan:
+				select {
+				case <-ds.unpauseChan:
+				case <-stop:
+					return
+				}
+			}
+		}
+	}()
+	return done
+}
+
+// TestPauseSurvivesSlowToStartRowLoop reproduces the race that broke
+// the API source: a datastream is attached to the dataflow (df.Ready
+// == true) but its row loop hasn't begun yet because the HTTP response
+// is still in flight. The pre-fix Pause() gave up after a random 1-4s
+// window; the fix extends the budget to PauseTimeout() (default 60s).
+//
+// Simulated row-loop start delay is 5s, well past the old 1-4s race
+// window. With the old code this test would fail; with the fix it
+// passes.
+func TestPauseSurvivesSlowToStartRowLoop(t *testing.T) {
+	df := NewDataflow()
+	cols := NewColumnsFromFields("id", "name")
+
+	ds := NewDatastreamContext(context.Background(), cols)
+	ds.Ready = true
+
+	df.Columns = cols
+	df.Streams = append(df.Streams, ds)
+	df.Ready = true
+
+	stop := make(chan struct{})
+	defer close(stop)
+	startFakeStreamConsumer(t, ds, 5*time.Second, stop)
+
+	start := time.Now()
+	paused := df.Pause()
+	elapsed := time.Since(start)
+
+	assert.True(t, paused, "Pause() should succeed even when row loop starts late")
+	assert.GreaterOrEqual(t, elapsed, 5*time.Second,
+		"Pause() should keep retrying until the row loop comes up")
+
+	df.Unpause()
+}
+
+// TestPauseTimesOutWhenStreamNeverStarts asserts that if the row loop
+// never begins, Pause() returns false within PauseTimeout() — false,
+// not silently true — so callers can surface a real error. We shrink
+// the timeout via SLING_PAUSE_TIMEOUT to keep the test fast.
+func TestPauseTimesOutWhenStreamNeverStarts(t *testing.T) {
+	t.Setenv("SLING_PAUSE_TIMEOUT", "1")
+
+	df := NewDataflow()
+	cols := NewColumnsFromFields("id")
+	ds := NewDatastreamContext(context.Background(), cols)
+	ds.Ready = true
+	df.Columns = cols
+	df.Streams = append(df.Streams, ds)
+	df.Ready = true
+
+	start := time.Now()
+	paused := df.Pause()
+	elapsed := time.Since(start)
+
+	assert.False(t, paused, "Pause() must return false when no row loop ever starts")
+	assert.GreaterOrEqual(t, elapsed, 1*time.Second,
+		"Pause() should wait the configured timeout before giving up")
+	assert.Less(t, elapsed, 3*time.Second,
+		"Pause() should not wait significantly longer than the timeout")
+}
+
+// TestPauseRespectsDataflowContextCancel ensures Pause() returns
+// promptly when the dataflow context is canceled, rather than waiting
+// out PauseTimeout(). This matters for shutdown paths.
+func TestPauseRespectsDataflowContextCancel(t *testing.T) {
+	t.Setenv("SLING_PAUSE_TIMEOUT", "30")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	df := NewDataflowContext(ctx)
+	cols := NewColumnsFromFields("id")
+	ds := NewDatastreamContext(ctx, cols)
+	ds.Ready = true
+	df.Columns = cols
+	df.Streams = append(df.Streams, ds)
+	df.Ready = true
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	paused := df.Pause()
+	elapsed := time.Since(start)
+
+	assert.False(t, paused, "Pause() must return false when context is canceled")
+	assert.Less(t, elapsed, 2*time.Second,
+		"Pause() should return promptly on context cancel, not wait for the full timeout")
+}
+
+// TestPauseSucceedsWhenStreamAlreadyRunning is the happy path: the
+// stream is already in its row loop when Pause() is called. Should
+// return true essentially immediately. This is the file-source case
+// (rows start flowing as soon as the consumer is wired up).
+func TestPauseSucceedsWhenStreamAlreadyRunning(t *testing.T) {
+	df := NewDataflow()
+	cols := NewColumnsFromFields("id")
+	ds := NewDatastreamContext(context.Background(), cols)
+	ds.Ready = true
+	df.Columns = cols
+	df.Streams = append(df.Streams, ds)
+	df.Ready = true
+
+	stop := make(chan struct{})
+	defer close(stop)
+	startFakeStreamConsumer(t, ds, 0, stop) // already pumping
+
+	// give the consumer goroutine a moment to enter the select
+	time.Sleep(20 * time.Millisecond)
+
+	start := time.Now()
+	paused := df.Pause()
+	elapsed := time.Since(start)
+
+	assert.True(t, paused, "Pause() should succeed when row loop is already running")
+	assert.Less(t, elapsed, 500*time.Millisecond,
+		"Pause() should be near-instant for an already-running stream")
+
+	df.Unpause()
+}
+

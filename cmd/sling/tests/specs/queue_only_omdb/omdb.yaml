@@ -1,0 +1,42 @@
+name: "OMDB Queue-Only Test"
+description: "Demonstrates a queue_only producer endpoint feeding a consumer endpoint via an iop queue. Search results emit imdbIDs into a queue; the detail endpoint iterates over that queue to fetch each movie."
+
+defaults:
+  state:
+    base_url: "https://www.omdbapi.com"
+
+endpoints:
+  # Producer: queue_only.
+  search:
+    queue_only: true
+    request:
+      url: "{state.base_url}/"
+      method: GET
+      parameters:
+        apikey: "{env.OMDB_API_KEY}"
+        s: "{coalesce(state.search_term, \"batman\")}"
+        type: "movie"
+        page: "1"
+    response:
+      records:
+        jmespath: "Search"
+      processors:
+        - expression: "record.imdbID"
+          output: "queue.imdb_ids"
+
+  # Consumer: iterates over the queue populated by `search`, fetches detail for each.
+  details:
+    iterate:
+      over: "queue.imdb_ids"
+      into: "state.imdb_id"
+      concurrency: 2
+    request:
+      url: "{state.base_url}/"
+      method: GET
+      parameters:
+        apikey: "{env.OMDB_API_KEY}"
+        i: "{state.imdb_id}"
+    response:
+      records:
+        jmespath: "@"
+        primary_key: ["imdbID"]

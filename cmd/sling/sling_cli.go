@@ -202,7 +202,7 @@ var cliRunFlags = []g.Flag{
 
 var cliRun = &g.CliSC{
 	Name:                  "run",
-	Description:           "Execute a run",
+	Description:           "Execute a replication or pipeline run",
 	AdditionalHelpPrepend: "\nSee more examples and configuration details at https://docs.slingdata.io/sling-cli/",
 	Flags:                 cliRunFlags,
 	PosFlags: []g.Flag{
@@ -263,6 +263,12 @@ var cliConns = &g.CliSC{
 					ShortName:   "",
 					Type:        "bool",
 					Description: "Show column level metadata.",
+				},
+				{
+					Name:        "output",
+					ShortName:   "o",
+					Type:        "string",
+					Description: "Output format: text (default), csv, json. Overrides SLING_OUTPUT.",
 				},
 				{
 					Name:        "debug",
@@ -390,6 +396,18 @@ var cliConns = &g.CliSC{
 				},
 			},
 			Flags: []g.Flag{
+				{
+					Name:        "output",
+					ShortName:   "o",
+					Type:        "string",
+					Description: "Output format: text (default), csv, json, arrow. Overrides SLING_OUTPUT.",
+				},
+				{
+					Name:        "limit",
+					ShortName:   "l",
+					Type:        "string",
+					Description: "Maximum number of rows to return. Default 100. Use 0 for no limit.",
+				},
 				{
 					Name:        "debug",
 					ShortName:   "d",

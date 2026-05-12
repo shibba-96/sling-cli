@@ -789,6 +789,18 @@ func (duck *DuckDb) StreamContext(ctx context.Context, sql string, options ...ma
 
 	columns, describeErr := duck.Describe(sql)
 
+	// If Describe failed for a SELECT/WITH query, the query is broken
+	// (e.g. missing table, bad syntax). Fail fast rather than emit empty
+	// results — see race where SubmitSQL sometimes returns nil error and
+	// the caller would think the query succeeded with 0 rows.
+	if describeErr != nil {
+		sqlStripped, _ := StripSQLComments(sql)
+		sqlLower := strings.TrimSpace(strings.ToLower(sqlStripped))
+		if strings.HasPrefix(sqlLower, "select") || strings.HasPrefix(sqlLower, "with") {
+			return nil, g.Error(describeErr, "could not describe query")
+		}
+	}
+
 	// add any specified transforms
 	transforms := []map[string]string{}
 	fsProps := map[string]string{}

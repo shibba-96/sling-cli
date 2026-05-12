@@ -575,11 +575,6 @@ func (conn *ClickhouseConn) GenerateInsertStatement(tableName string, cols iop.C
 		valuesStr += fmt.Sprintf("(%s),", strings.Join(values, ", "))
 	}
 
-	if conn.GetProp("http_url") != "" {
-		table, _ := ParseTableName(tableName, conn.GetType())
-		tableName = table.NameQ()
-	}
-
 	statement := g.R(
 		"insert into {table} ({fields}) values  {values}",
 		"table", tableName,

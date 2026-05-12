@@ -534,33 +534,42 @@ func (conn *MySQLConn) LoadDataLocal(tableFName string, ds *iop.Datastream) (cou
 	// Generate unique handler name to avoid conflicts in concurrent operations
 	handlerName := "sling_" + uuid.New().String()
 
-	// Register the reader handler for streaming CSV with header
-	// The MySQL LOAD DATA template uses IGNORE 1 LINES, so we need the header
-	// BoolAsInt is required because MySQL's LOAD DATA doesn't convert true/false to 1/0
+	// The MySQL LOAD DATA template uses IGNORE 1 LINES, so we need the header.
+	// BoolAsInt is required because MySQL's LOAD DATA doesn't convert true/false to 1/0.
 	// EscapeBackslash is required because MySQL uses backslash as escape character
 	// (e.g., \N = NULL, \" = quote). We need to double backslashes in data so
 	// literal backslashes are preserved and not interpreted as escape sequences.
 	cfg := iop.LoaderStreamConfig(true)
 	cfg.BoolAsInt = true
 	cfg.EscapeBackslash = true
-	mysql.RegisterReaderHandler(handlerName, func() io.Reader {
-		return ds.NewCsvReader(cfg)
-	})
+
+	// Each batch in the datastream needs its own LOAD DATA LOCAL INFILE execution,
+	// because the reader handler is consumed once per Exec. Without a per-batch loop,
+	// only the first batch is loaded when batch_limit splits the stream and the rest
+	// is silently dropped.
 	defer mysql.DeregisterReaderHandler(handlerName)
 
-	// Get the template and build the query
 	tmpl := conn.GetTemplateValue("core.load_data_local_reader")
 	loadQuery := g.R(tmpl,
 		"handler_name", handlerName,
 		"table", tableFName,
 	)
-
 	g.Trace("LoadDataLocal query: %s", loadQuery)
 
-	// Execute the LOAD DATA statement
-	_, err = conn.Exec(loadQuery)
-	if err != nil {
-		return 0, g.Error(err, "LoadDataLocal failed for table %s", tableFName)
+	for batchR := range ds.NewCsvReaderChnl(cfg) {
+		reader := batchR.Reader
+		mysql.RegisterReaderHandler(handlerName, func() io.Reader {
+			return reader
+		})
+
+		_, err = conn.Exec(loadQuery)
+		if err != nil {
+			return ds.Count, g.Error(err, "LoadDataLocal failed for table %s", tableFName)
+		}
+	}
+
+	if err = ds.Err(); err != nil {
+		return ds.Count, g.Error(err, "datastream error during LoadDataLocal for table %s", tableFName)
 	}
 
 	return ds.Count, nil

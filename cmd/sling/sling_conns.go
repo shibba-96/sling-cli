@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/slingdata-io/sling-cli/core/dbio"
 	"github.com/slingdata-io/sling-cli/core/dbio/connection"
 	"github.com/slingdata-io/sling-cli/core/dbio/database"
+	"github.com/slingdata-io/sling-cli/core/dbio/iop"
 	"github.com/slingdata-io/sling-cli/core/env"
 	"github.com/slingdata-io/sling-cli/core/sling"
 	"github.com/spf13/cast"
@@ -32,7 +34,8 @@ func processConns(c *g.CliSC) (ok bool, err error) {
 
 	ef := env.LoadSlingEnvFile()
 	ec := connection.EnvFileConns{EnvFile: &ef}
-	asJSON := os.Getenv("SLING_OUTPUT") == "json"
+	// resolved per-subcommand below; default falls back to SLING_OUTPUT
+	var asJSON, asArrow, asCSV bool
 
 	entries := connection.GetLocalConns(true)
 	defer connection.CloseAll()
@@ -86,6 +89,27 @@ func processConns(c *g.CliSC) (ok bool, err error) {
 	case "exec":
 		env.SetTelVal("task", g.Marshal(g.M("type", sling.ConnExec)))
 
+		var output string
+		output, err = ResolveOutputFormat(c, "json", "csv", "arrow")
+		if err != nil {
+			return ok, err
+		}
+		asJSON = output == "json"
+		asCSV = output == "csv"
+		asArrow = output == "arrow"
+
+		// --limit: default 100, "0" means no limit. String type so we can
+		// distinguish "not provided" (use default) from explicit 0.
+		limit := uint64(100)
+		if raw := strings.TrimSpace(cast.ToString(c.Vals["limit"])); raw != "" {
+			n, parseErr := cast.ToUint64E(raw)
+			if parseErr != nil {
+				return ok, g.Error("invalid --limit %q; expected a non-negative integer", raw)
+			}
+			limit = n
+		}
+		queryOpts := g.M("limit", limit)
+
 		name := cast.ToString(c.Vals["name"])
 		conn := entries.Get(name)
 		if conn.Name == "" {
@@ -126,22 +150,97 @@ func processConns(c *g.CliSC) (ok bool, err error) {
 
 			if len(database.ParseSQLMultiStatements(query)) == 1 && (!sQuery.IsQuery() || (strings.Contains(strings.ToLower(query), "select") && !strings.Contains(strings.ToLower(query), "insert")) || g.In(conn.Connection.Type, dbio.TypeDbPrometheus, dbio.TypeDbMongoDB, dbio.TypeDbElasticsearch)) {
 
-				sql := sQuery.Select(database.SelectOptions{Limit: g.Ptr(100)})
-				if sQuery.IsQuery() || sQuery.IsProcedural() {
+				// Limit handling:
+				//  - limit > 0: wrap the SQL with the dialect's limit_sql template via
+				//    sQuery.Select(...) so the database truncates server-side. This
+				//    works for both bare tables and raw SELECT queries.
+				//  - limit == 0: unlimited; for raw queries fall back to sQuery.Raw so
+				//    we don't wrap with `LIMIT 0`.
+				//  - procedural calls (stored procs, etc.) cannot be wrapped, so they
+				//    always use sQuery.Raw and ignore the limit.
+				var selectOpts database.SelectOptions
+				if limit > 0 {
+					n := int(limit)
+					selectOpts.Limit = &n
+				}
+				sql := sQuery.Select(selectOpts)
+				if sQuery.IsProcedural() || (limit == 0 && sQuery.IsQuery()) {
 					sql = sQuery.Raw
 				}
-				data, err := dbConn.Query(sql)
-				if err != nil {
-					return ok, g.Error(err, "cannot execute query")
-				}
 
-				if asJSON {
-					fmt.Println(g.Marshal(g.M("fields", data.GetFields(), "rows", data.Rows)))
+				if asArrow || asCSV {
+					// Streaming path: pull rows from StreamRowsContext and write them
+					// directly to stdout (Arrow IPC stream or CSV). Logs go to stderr
+					// so the output stays clean. Memory stays bounded for large queries.
+					ds, err := dbConn.Self().StreamRowsContext(dbConn.Context().Ctx, sql, queryOpts)
+					if err != nil {
+						return ok, g.Error(err, "cannot execute query")
+					}
+					if err := ds.WaitReady(); err != nil {
+						return ok, g.Error(err, "datastream not ready")
+					}
+
+					var rowCount int64
+					if asArrow {
+						aw, err := iop.NewArrowStreamWriter(os.Stdout, ds.Columns)
+						if err != nil {
+							return ok, g.Error(err, "could not create arrow writer")
+						}
+						for row := range ds.Rows() {
+							if err := aw.WriteRow(row); err != nil {
+								aw.Close()
+								return ok, g.Error(err, "could not write arrow row")
+							}
+							rowCount++
+						}
+						if err := ds.Err(); err != nil {
+							aw.Close()
+							return ok, g.Error(err, "error while streaming rows")
+						}
+						if err := aw.Close(); err != nil {
+							return ok, g.Error(err, "could not close arrow writer")
+						}
+					} else { // asCSV
+						w := csv.NewWriter(os.Stdout)
+						if err := w.Write(ds.Columns.Names()); err != nil {
+							return ok, g.Error(err, "could not write csv header")
+						}
+						rec := make([]string, len(ds.Columns))
+						for row := range ds.Rows() {
+							for i, val := range row {
+								if i >= len(ds.Columns) {
+									break
+								}
+								rec[i] = ds.Sp.CastToStringCSV(i, val, ds.Columns[i].Type)
+							}
+							if err := w.Write(rec); err != nil {
+								return ok, g.Error(err, "could not write csv row")
+							}
+							rowCount++
+						}
+						w.Flush()
+						if err := w.Error(); err != nil {
+							return ok, g.Error(err, "csv writer error")
+						}
+						if err := ds.Err(); err != nil {
+							return ok, g.Error(err, "error while streaming rows")
+						}
+					}
+					totalAffected = rowCount
 				} else {
-					fmt.Println(g.PrettyTable(data.GetFields(), data.Rows))
-				}
+					data, err := dbConn.Query(sql, queryOpts)
+					if err != nil {
+						return ok, g.Error(err, "cannot execute query")
+					}
 
-				totalAffected = cast.ToInt64(len(data.Rows))
+					if asJSON {
+						fmt.Println(g.Marshal(g.M("fields", data.GetFields(), "rows", data.Rows)))
+					} else {
+						fmt.Println(g.PrettyTable(data.GetFields(), data.Rows))
+					}
+
+					totalAffected = cast.ToInt64(len(data.Rows))
+				}
 			} else {
 				if len(queries) > 1 {
 					if strings.HasPrefix(query, "file://") {
@@ -176,7 +275,7 @@ func processConns(c *g.CliSC) (ok bool, err error) {
 
 	case "list":
 		fields, rows := entries.List()
-		if asJSON {
+		if os.Getenv("SLING_OUTPUT") == "json" {
 			fmt.Println(g.Marshal(g.M("fields", fields, "rows", rows)))
 		} else {
 			fmt.Println(g.PrettyTable(fields, rows))
@@ -201,7 +300,7 @@ func processConns(c *g.CliSC) (ok bool, err error) {
 			err = g.Error(err, "could not test %s", name)
 		}
 
-		if asJSON {
+		if os.Getenv("SLING_OUTPUT") == "json" {
 			fmt.Println(g.Marshal(g.M("success", err == nil, "error", g.ErrMsg(err))))
 			return
 		}
@@ -221,4 +320,21 @@ func processConns(c *g.CliSC) (ok bool, err error) {
 		return false, nil
 	}
 	return ok, nil
+}
+
+// ResolveOutputFormat resolves the output format for `conns` subcommands.
+func ResolveOutputFormat(c *g.CliSC, allowed ...string) (string, error) {
+	output := strings.ToLower(strings.TrimSpace(cast.ToString(c.Vals["output"])))
+	if output == "" {
+		output = strings.ToLower(strings.TrimSpace(os.Getenv("SLING_OUTPUT")))
+	}
+	if output == "" || output == "text" {
+		return "", nil
+	}
+	for _, a := range allowed {
+		if output == a {
+			return output, nil
+		}
+	}
+	return "", g.Error("invalid --output %q; expected one of: text, %s", output, strings.Join(allowed, ", "))
 }

@@ -350,9 +350,16 @@ retry:
 	return false
 }
 
+// arrowRecordWriter is the subset of *ipc.FileWriter / *ipc.Writer we use,
+// so ArrowWriter can hold either format behind one field.
+type arrowRecordWriter interface {
+	Write(arrow.RecordBatch) error
+	Close() error
+}
+
 // ArrowWriter is an arrow writer object using arrow v18
 type ArrowWriter struct {
-	Writer       *ipc.FileWriter
+	Writer       arrowRecordWriter
 	columns      Columns
 	arrowSchema  *arrow.Schema
 	mem          memory.Allocator
@@ -391,6 +398,37 @@ func NewArrowWriter(w io.Writer, columns Columns, opts ...ipc.Option) (a *ArrowW
 	a.Writer = writer
 
 	// Initialize builders
+	a.builders = make([]array.Builder, len(columns))
+	for i, field := range a.arrowSchema.Fields() {
+		a.builders[i] = a.createBuilder(field.Type)
+	}
+
+	return a, nil
+}
+
+// NewArrowStreamWriter creates an Arrow IPC stream writer (vs. the file format
+// produced by NewArrowWriter). Use this when the destination is not seekable
+// — e.g. stdout, a network socket, or a pipe. Stream consumers read it with
+// pyarrow.ipc.open_stream / arrow::ipc::RecordBatchStreamReader.
+func NewArrowStreamWriter(w io.Writer, columns Columns, opts ...ipc.Option) (a *ArrowWriter, err error) {
+
+	for i, col := range columns {
+		if col.IsDecimal() {
+			columns[i].DbPrecision = lo.Ternary(col.DbPrecision < env.DdlMinDecLength, int(env.DdlMinDecLength), col.DbPrecision)
+			columns[i].DbScale = lo.Ternary(col.DbScale < env.DdlMinDecScale, env.DdlMinDecScale, col.DbScale)
+		}
+	}
+
+	a = &ArrowWriter{
+		columns: columns,
+		mem:     memory.NewGoAllocator(),
+	}
+
+	a.arrowSchema = ColumnsToArrowSchema(columns)
+
+	writerOpts := append([]ipc.Option{ipc.WithSchema(a.arrowSchema), ipc.WithAllocator(a.mem)}, opts...)
+	a.Writer = ipc.NewWriter(w, writerOpts...)
+
 	a.builders = make([]array.Builder, len(columns))
 	for i, field := range a.arrowSchema.Fields() {
 		a.builders[i] = a.createBuilder(field.Type)
@@ -465,7 +503,7 @@ func (a *ArrowWriter) flushBatch() error {
 	}
 
 	// Create record batch
-	batch := array.NewRecord(a.arrowSchema, arrays, int64(a.rowsBuffered))
+	batch := array.NewRecordBatch(a.arrowSchema, arrays, int64(a.rowsBuffered))
 	defer batch.Release()
 
 	// Write the batch

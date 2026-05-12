@@ -8,7 +8,7 @@
   name: Run sling command
   run: sling run
   output_contains:
-    - Execute a run
+    - Execute a replication or pipeline run
 
 - id: 3
   name: Run sling with Excel source
@@ -2049,7 +2049,7 @@
 
 - id: 212
   name: ADBC DuckDB write and read via ADBC driver
-  run: 'sling run -d -p cmd/sling/tests/pipelines/adbc/p.40.adbc_duckdb.yaml'
+  run: 'sling run -d -p cmd/sling/tests/pipelines/adbc/duckdb/p.40.adbc_duckdb.yaml'
   output_contains:
     - 'ADBC DuckDB test PASSED'
 
@@ -2252,7 +2252,7 @@
 - id: 235
   name: 'PostGIS geometry replication preserves geometry type (issue 732)'
   run: |
-    cd /Users/fritz/Projects/sling-workspace/sling-cli/cmd/sling/tests/pipelines/postgis
+    cd cmd/sling/tests/pipelines/postgis
     bash run_docker_test.sh
   group: postgis
   output_contains:
@@ -2260,3 +2260,11 @@
     - 'Target row count: 6'
     - 'PostGIS geometry test PASSED'
     - 'execution succeeded'
+
+- id: 236
+  name: 'sling api queue'
+  run: |
+    cd cmd/sling/tests/specs/queue_only_omdb
+    sling run -d pipeline.yaml 
+  output_contains:
+    - records pushed to queue

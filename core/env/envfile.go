@@ -1,16 +1,14 @@
 package env
 
 import (
+	"bytes"
 	"os"
 	"path"
-	"sort"
 	"strings"
 
 	"github.com/flarco/g"
 	cmap "github.com/orcaman/concurrent-map/v2"
-	"github.com/samber/lo"
-	"github.com/spf13/cast"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type EnvFile struct {
@@ -21,49 +19,6 @@ type EnvFile struct {
 	Path       string `json:"-" yaml:"-"`
 	TopComment string `json:"-" yaml:"-"`
 	Body       string `json:"-" yaml:"-"`
-}
-
-// marshalEnvFileBytes marshals the EnvFile into formatted YAML bytes
-func (ef *EnvFile) marshalEnvFileBytes() ([]byte, error) {
-	connsMap := yaml.MapSlice{}
-
-	// order connections names
-	names := lo.Keys(ef.Connections)
-	sort.Strings(names)
-	for _, name := range names {
-		keyMap := ef.Connections[name]
-		// order connection keys (type first)
-		cMap := yaml.MapSlice{}
-		keys := lo.Keys(keyMap)
-		sort.Strings(keys)
-		if v, ok := keyMap["type"]; ok {
-			cMap = append(cMap, yaml.MapItem{Key: "type", Value: v})
-		}
-
-		for _, k := range keys {
-			if k == "type" {
-				continue // already put first
-			}
-			k = cast.ToString(k)
-			cMap = append(cMap, yaml.MapItem{Key: k, Value: keyMap[k]})
-		}
-
-		// add to connection map
-		connsMap = append(connsMap, yaml.MapItem{Key: name, Value: cMap})
-	}
-
-	efMap := yaml.MapSlice{
-		{Key: "connections", Value: connsMap},
-		{Key: "variables", Value: ef.Env},
-	}
-
-	envBytes, err := yaml.Marshal(efMap)
-	if err != nil {
-		return nil, g.Error(err, "could not marshal into YAML")
-	}
-
-	output := formatYAML([]byte(ef.TopComment + string(envBytes)))
-	return output, nil
 }
 
 func (ef *EnvFile) WriteEnvFile() (err error) {
@@ -91,43 +46,93 @@ func (ef *EnvFile) MarshalBody() (string, error) {
 	return string(output), nil
 }
 
-func formatYAML(input []byte) []byte {
-	newOutput := []byte{}
-	pIndent := 0
-	indent := 0
-	inIndent := true
-	prevC := byte('-')
-	for _, c := range input {
-		add := false
-		if c == ' ' && inIndent {
-			indent++
-			add = true
-		} else if c == '\n' {
-			pIndent = indent
-			indent = 0
-			add = true
-			inIndent = true
-		} else if prevC == '\n' {
-			newOutput = append(newOutput, '\n') // add extra space
-			add = true
-		} else if prevC == ' ' && pIndent > indent && inIndent {
-			newOutput = append(newOutput, '\n') // add extra space
-			for i := 0; i < indent; i++ {
-				newOutput = append(newOutput, ' ')
-			}
-			add = true
-			inIndent = false
-		} else {
-			add = true
-			inIndent = false
-		}
-
-		if add {
-			newOutput = append(newOutput, c)
-		}
-		prevC = c
+func (ef *EnvFile) freshRoot() *yaml.Node {
+	root := &yaml.Node{
+		Kind: yaml.DocumentNode,
+		Content: []*yaml.Node{{
+			Kind: yaml.MappingNode,
+		}},
 	}
-	return newOutput
+	if ef.TopComment != "" {
+		root.Content[0].HeadComment = strings.TrimRight(ef.TopComment, "\n")
+	}
+	return root
+}
+
+// marshalEnvFileBytes renders the EnvFile as YAML, preserving comments, key
+// order, and unmanaged top-level keys from the file at ef.Path.
+func (ef *EnvFile) marshalEnvFileBytes() ([]byte, error) {
+	original, err := ef.loadRootNode()
+	if err != nil {
+		return nil, err
+	}
+
+	newRoot, err := ef.structToRootNode(original)
+	if err != nil {
+		return nil, err
+	}
+
+	merged := mergeNode(original, newRoot)
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(merged); err != nil {
+		_ = enc.Close()
+		return nil, g.Error(err, "could not marshal into YAML")
+	}
+	if err := enc.Close(); err != nil {
+		return nil, g.Error(err, "could not finalize YAML encoder")
+	}
+	return buf.Bytes(), nil
+}
+
+// structToRootNode marshals the EnvFile struct into a DocumentNode, mirroring
+// unmanaged top-level keys from original so the merge doesn't drop them.
+func (ef *EnvFile) structToRootNode(original *yaml.Node) (*yaml.Node, error) {
+	b, err := yaml.Marshal(ef)
+	if err != nil {
+		return nil, g.Error(err, "could not marshal env file")
+	}
+	var doc yaml.Node
+	if uerr := yaml.Unmarshal(b, &doc); uerr != nil {
+		return nil, g.Error(uerr, "could not re-parse env file node")
+	}
+	if doc.Kind == 0 {
+		doc = yaml.Node{
+			Kind:    yaml.DocumentNode,
+			Content: []*yaml.Node{{Kind: yaml.MappingNode}},
+		}
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
+	}
+
+	managed := map[string]struct{}{
+		"connections": {}, "variables": {}, "env": {},
+	}
+	if original != nil && len(original.Content) > 0 && original.Content[0].Kind == yaml.MappingNode {
+		newMap := doc.Content[0]
+		newKeys := map[string]struct{}{}
+		for i := 0; i < len(newMap.Content); i += 2 {
+			newKeys[newMap.Content[i].Value] = struct{}{}
+		}
+		origMap := original.Content[0]
+		for i := 0; i < len(origMap.Content); i += 2 {
+			k := origMap.Content[i].Value
+			if _, isManaged := managed[k]; isManaged {
+				continue
+			}
+			if _, alreadyInNew := newKeys[k]; alreadyInNew {
+				continue
+			}
+			keyCopy := *origMap.Content[i]
+			valCopy := *origMap.Content[i+1]
+			newMap.Content = append(newMap.Content, &keyCopy, &valCopy)
+		}
+	}
+
+	return &doc, nil
 }
 
 var dotEnvMap = cmap.New[string]()
@@ -222,13 +227,30 @@ func UnsetEnvKeys(keys []string) {
 }
 
 func LoadEnvFile(path string) (ef EnvFile) {
-	bytes, _ := os.ReadFile(path)
+	body, _ := os.ReadFile(path)
+	ef, _ = loadEnvFile(string(body), path)
+	return ef
+}
 
-	ef.Body = string(bytes)
+// loadEnvFile parses YAML env-file content from `body`, expanding ${VAR}
+// references against the current process environment (plus SLING_HOME_DIR
+// when a path is provided), and exports scalar entries from `env:` into
+// os.Environ. `path` is recorded on the returned EnvFile when non-empty.
+func loadEnvFile(body, path string) (ef EnvFile, err error) {
+	ef.Body = body
 	ef.Path = path
 
+	if body == "" {
+		ef.Connections = map[string]map[string]any{}
+		ef.Env = map[string]any{}
+		return ef, nil
+	}
+
 	// expand variables
-	envMap := map[string]any{"SLING_HOME_DIR": HomeDir}
+	envMap := map[string]any{}
+	if path != "" {
+		envMap["SLING_HOME_DIR"] = HomeDir
+	}
 	for _, tuple := range os.Environ() {
 		key := strings.Split(tuple, "=")[0]
 		val := strings.TrimPrefix(tuple, key+"=")
@@ -236,10 +258,8 @@ func LoadEnvFile(path string) (ef EnvFile) {
 	}
 	ef.Body = g.Rmd(ef.Body, envMap)
 
-	err := yaml.Unmarshal([]byte(ef.Body), &ef)
-	if err != nil {
+	if err = yaml.Unmarshal([]byte(ef.Body), &ef); err != nil {
 		err = g.Error(err, "error parsing yaml string")
-		_ = err
 	}
 
 	if ef.Connections == nil {
@@ -251,17 +271,127 @@ func LoadEnvFile(path string) (ef EnvFile) {
 			ef.Env = map[string]any{}
 		} else {
 			ef.Env = ef.Variables // support legacy
+			ef.Variables = nil
 		}
 	}
 
 	for k, v := range ef.Env {
 		if _, found := envMap[k]; !found {
+			// non-scalar values (e.g. SLING_ASSIST) are read from ef.Env, not os.Getenv
+			switch v.(type) {
+			case map[string]any, map[any]any, []any:
+				continue
+			}
 			os.Setenv(k, g.CastToString(v))
 		}
 	}
-	return ef
+	return ef, err
 }
 
 func GetEnvFilePath(dir string) string {
 	return CleanWindowsPath(path.Join(dir, "env.yaml"))
+}
+
+// mergeNode deep-merges newNode into original, keeping original's comments and
+// key order. Adapted from pulumi/pulumi's yamlutil.editNodes (Apache 2.0).
+func mergeNode(original, newNode *yaml.Node) *yaml.Node {
+	if original == nil {
+		out := *newNode
+		return &out
+	}
+	if newNode == nil {
+		out := *original
+		return &out
+	}
+	if original.Kind != newNode.Kind {
+		out := *newNode
+		return &out
+	}
+
+	ret := *original
+	ret.Tag = newNode.Tag
+	ret.Value = newNode.Value
+
+	switch original.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		minLen := len(newNode.Content)
+		if len(original.Content) < minLen {
+			minLen = len(original.Content)
+		}
+		content := make([]*yaml.Node, 0, len(newNode.Content))
+		for i := 0; i < minLen; i++ {
+			content = append(content, mergeNode(original.Content[i], newNode.Content[i]))
+		}
+		content = append(content, newNode.Content[minLen:]...)
+		ret.Content = content
+	case yaml.MappingNode:
+		ret.Content = mergeMappingContent(original, newNode)
+	case yaml.ScalarNode, yaml.AliasNode:
+		ret.Content = newNode.Content
+	}
+	return &ret
+}
+
+// mergeMappingContent merges two mapping nodes: original keys keep their
+// position and comments; new-only keys append at the end; dropped keys are
+// removed.
+func mergeMappingContent(original, newNode *yaml.Node) []*yaml.Node {
+	origIdx := map[string]int{}
+	newIdx := map[string]int{}
+	var origOrder, newOnly []string
+
+	for i := 0; i < len(original.Content); i += 2 {
+		k := original.Content[i].Value
+		origIdx[k] = i
+		origOrder = append(origOrder, k)
+	}
+	for i := 0; i < len(newNode.Content); i += 2 {
+		k := newNode.Content[i].Value
+		newIdx[k] = i
+		if _, ok := origIdx[k]; !ok {
+			newOnly = append(newOnly, k)
+		}
+	}
+
+	content := make([]*yaml.Node, 0, len(newNode.Content))
+	for _, k := range origOrder {
+		ni, present := newIdx[k]
+		if !present {
+			continue
+		}
+		oi := origIdx[k]
+		key := mergeNode(original.Content[oi], newNode.Content[ni])
+		val := mergeNode(original.Content[oi+1], newNode.Content[ni+1])
+		content = append(content, key, val)
+	}
+	for _, k := range newOnly {
+		ni := newIdx[k]
+		key := *newNode.Content[ni]
+		val := *newNode.Content[ni+1]
+		content = append(content, &key, &val)
+	}
+	return content
+}
+
+// loadRootNode parses ef.Path into a yaml.Node tree, returning a fresh root
+// if the file is missing, empty, or not a mapping at the top.
+func (ef *EnvFile) loadRootNode() (*yaml.Node, error) {
+	root := &yaml.Node{}
+	if ef.Path == "" {
+		return ef.freshRoot(), nil
+	}
+	data, rerr := os.ReadFile(ef.Path)
+	if rerr != nil || len(bytes.TrimSpace(data)) == 0 {
+		return ef.freshRoot(), nil
+	}
+	if uerr := yaml.Unmarshal(data, root); uerr != nil {
+		return nil, g.Error(uerr, "could not parse %s", ef.Path)
+	}
+	if root.Kind == 0 {
+		return ef.freshRoot(), nil
+	}
+	if len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		root.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
+	}
+	return root, nil
 }

@@ -107,8 +107,15 @@ test-python-arrow-true:
     export SLING_BINARY="$PWD/cmd/sling/sling"
     cd ../sling-python/sling && SLING_USE_ARROW=true python -m pytest tests/test_sling_class.py -v && cd -
 
+# Test Python Connection class (sling conns exec/test, arrow IPC, CSV streaming, limit)
+test-python-conns:
+    #!/usr/bin/env bash
+    echo "TESTING Python Connection class"
+    export SLING_BINARY="$PWD/cmd/sling/sling"
+    cd ../sling-python/sling && python -m pytest tests/test_connection.py -v && cd -
+
 # Run all Python tests
-test-python: test-python-main test-python-arrow-false test-python-arrow-true
+test-python: test-python-main test-python-arrow-false test-python-arrow-true test-python-conns
 
 test-cdc-basic:
     #!/usr/bin/env bash
@@ -144,7 +151,7 @@ test-adbc-docker arch="amd64,arm64":
     #!/usr/bin/env bash
     set -e
     echo "TESTING ADBC DuckDB via Docker ({{arch}})"
-    bash cmd/sling/tests/pipelines/adbc/run_docker_test.sh "{{arch}}"
+    bash cmd/sling/tests/pipelines/adbc/duckdb/run_docker_test.sh "{{arch}}"
 
 # Clean build artifacts
 clean:

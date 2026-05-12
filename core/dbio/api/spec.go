@@ -45,6 +45,11 @@ func LoadSpec(specBody string) (spec Spec, err error) {
 	// store body
 	spec.originalBody = specBody
 
+	// the top-level `queues:` declaration is deprecated; queues are auto-detected
+	if len(spec.Queues) > 0 {
+		g.Warn("spec field 'queues' is deprecated and ignored — queues are auto-detected from endpoint processors and iterate expressions; please remove the 'queues' field from your spec")
+	}
+
 	rootMap := yaml.MapSlice{}
 	err = yaml.Unmarshal([]byte(specBody), &rootMap)
 	if err != nil {
@@ -101,8 +106,8 @@ func LoadSpec(specBody string) (spec Spec, err error) {
 	// update spec.EndpointMap with compiled endpoints
 	spec.EndpointMap = compiledEndpointMap
 
-	// validate that all queues used by endpoints are declared
-	if err = spec.validateQueues(compiledEndpointMap); err != nil {
+	// validate that every queue consumed by an endpoint has at least one producer
+	if err = spec.validateQueueProducers(compiledEndpointMap); err != nil {
 		return spec, g.Error(err, "queue validation failed")
 	}
 
@@ -138,46 +143,45 @@ func (s *Spec) MD5() string {
 	return g.MD5(s.originalBody)
 }
 
-// validateQueues checks that all queues used by endpoints are declared at the Spec level
-func (s *Spec) validateQueues(endpointMap EndpointMap) error {
-	// Create a set of declared queues for fast lookup
-	declaredQueues := make(map[string]bool)
-	for _, queue := range s.Queues {
-		declaredQueues[queue] = true
-	}
+// validateQueueProducers checks that every queue consumed by an endpoint
+// (via iterate.over) has at least one producer endpoint (a processor with
+// output starting with "queue.<name>"). Catches typos that the old
+// top-level `queues:` declaration used to catch.
+func (s *Spec) validateQueueProducers(endpointMap EndpointMap) error {
+	// Map of queue name -> list of consumer endpoint names
+	consumers := make(map[string][]string)
+	// Set of queue names that have at least one producer
+	producers := make(map[string]bool)
 
-	usedQueues := make(map[string][]string) // map[queueName][]endpointNames
-
-	// Check all endpoints for queue usage
 	for endpointName, endpoint := range endpointMap {
-		// Check if endpoint iterates over a queue
+		// Consumer: iterate.over expression starting with "queue."
 		if iterateOver, ok := endpoint.Iterate.Over.(string); ok {
 			if strings.HasPrefix(iterateOver, "queue.") {
 				queueName := strings.TrimPrefix(iterateOver, "queue.")
-				usedQueues[queueName] = append(usedQueues[queueName], endpointName)
+				consumers[queueName] = append(consumers[queueName], endpointName)
 			}
 		}
 
-		// Check if endpoint produces to a queue via processors
+		// Producer: any processor output starting with "queue."
 		for _, processor := range endpoint.Response.Processors {
 			if strings.HasPrefix(processor.Output, "queue.") {
 				queueName := strings.TrimPrefix(processor.Output, "queue.")
-				usedQueues[queueName] = append(usedQueues[queueName], endpointName)
+				producers[queueName] = true
 			}
 		}
 	}
 
-	// Validate that all used queues are declared
-	var undeclaredQueues []string
-	for queueName, endpointNames := range usedQueues {
-		if !declaredQueues[queueName] {
-			undeclaredQueues = append(undeclaredQueues, g.F("queue '%s' used by endpoint(s): %s", queueName, strings.Join(endpointNames, ", ")))
+	var missing []string
+	for queueName, consumerNames := range consumers {
+		if !producers[queueName] {
+			sort.Strings(consumerNames)
+			missing = append(missing, g.F("endpoint(s) %s iterate over queue.'%s', but no endpoint produces to it", strings.Join(consumerNames, ", "), queueName))
 		}
 	}
 
-	if len(undeclaredQueues) > 0 {
-		sort.Strings(undeclaredQueues)
-		return g.Error("undeclared queue(s) found:\n  - %s\n\nPlease declare them in the 'queues' section at the spec level", strings.Join(undeclaredQueues, "\n  - "))
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return g.Error("queue(s) with no producer:\n  - %s\n\nDid you mistype the queue name, or forget a processor with `output: queue.<name>`?", strings.Join(missing, "\n  - "))
 	}
 
 	return nil
@@ -232,7 +236,7 @@ type DynamicEndpoints []DynamicEndpoint
 
 type DynamicEndpoint struct {
 	Setup    Sequence `yaml:"setup" json:"setup"`
-	Iterate  string   `yaml:"iterate" json:"iterate"`
+	Iterate  any      `yaml:"iterate" json:"iterate"`
 	Into     string   `yaml:"into" json:"into"`
 	Endpoint Endpoint `yaml:"endpoint" json:"endpoint"`
 }
@@ -310,7 +314,8 @@ type Endpoint struct {
 	Description string     `yaml:"description" json:"description,omitempty"`
 	Docs        string     `yaml:"docs" json:"docs,omitempty"`
 	Disabled    bool       `yaml:"disabled" json:"disabled"`
-	Dynamic     bool       `yaml:"dynamic,omitempty" json:"dynamic,omitempty"` // is generated
+	QueueOnly   bool       `yaml:"queue_only,omitempty" json:"queue_only,omitempty"` // runs purely to populate queues, produces no record stream
+	Dynamic     bool       `yaml:"dynamic,omitempty" json:"dynamic,omitempty"`       // is generated
 	State       StateMap   `yaml:"state" json:"state"`
 	Sync        []string   `yaml:"sync" json:"sync,omitempty"`
 	Request     Request    `yaml:"request" json:"request"`

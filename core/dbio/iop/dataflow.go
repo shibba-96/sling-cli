@@ -170,48 +170,60 @@ func (df *Dataflow) BufferDataset() Dataset {
 	return data
 }
 
-// Pause pauses all streams
+// Pause pauses all streams. Returns false if any stream could not be
+// paused within the pause timeout or before the dataflow context is
+// canceled.
 func (df *Dataflow) Pause(exceptDs ...string) bool {
-	if df.Ready {
-
-		timer := time.NewTimer(time.Duration(g.RandInt(3000)+1000) * time.Millisecond)
-		for {
-			df.mux.Lock()
-			// try to pause all datastreams, or none
-			pauseMap := map[string]bool{}
-			for _, ds := range df.Streams {
-				if !lo.Contains(exceptDs, ds.ID) && !ds.closed {
-					pauseMap[ds.ID] = ds.TryPause()
-				}
-			}
-
-			pauseSlice := lo.Values(pauseMap)
-			if len(lo.Filter(pauseSlice, func(v bool, i int) bool { return v })) == len(pauseSlice) {
-				df.mux.Unlock()
-				break // only exit if all datastreams are paused
-			} else if len(pauseSlice) == 0 {
-				df.mux.Unlock()
-				break
-			}
-
-			// unpause paused since could not do distributed pause, and wait a bit
-			for _, ds := range df.Streams {
-				if paused, ok := pauseMap[ds.ID]; ok && paused {
-					ds.Unpause()
-				}
-			}
-			df.mux.Unlock()
-			time.Sleep(time.Duration(g.RandInt(100)) * time.Millisecond)
-
-			select {
-			case <-timer.C:
-				return false
-			default:
-			}
-		}
+	if !df.Ready {
+		return true
 	}
 
-	return true
+	pauseTimeoutStr := os.Getenv("SLING_PAUSE_TIMEOUT")
+	pauseTimeout := lo.Ternary(
+		pauseTimeoutStr != "",
+		time.Duration(cast.ToInt(pauseTimeoutStr))*time.Second,
+		30*time.Second, // default pause timeout
+	)
+	deadline := time.Now().Add(pauseTimeout)
+	ctxDone := df.Context.Ctx.Done()
+
+	for {
+		df.mux.Lock()
+		// try to pause all datastreams, or none
+		pauseMap := map[string]bool{}
+		for _, ds := range df.Streams {
+			if !lo.Contains(exceptDs, ds.ID) && !ds.closed {
+				pauseMap[ds.ID] = ds.TryPause()
+			}
+		}
+
+		pauseSlice := lo.Values(pauseMap)
+		if len(lo.Filter(pauseSlice, func(v bool, i int) bool { return v })) == len(pauseSlice) {
+			df.mux.Unlock()
+			return true // only exit if all datastreams are paused
+		} else if len(pauseSlice) == 0 {
+			df.mux.Unlock()
+			return true
+		}
+
+		// unpause paused since could not do distributed pause, and wait a bit
+		for _, ds := range df.Streams {
+			if paused, ok := pauseMap[ds.ID]; ok && paused {
+				ds.Unpause()
+			}
+		}
+		df.mux.Unlock()
+
+		select {
+		case <-ctxDone:
+			return false
+		case <-time.After(time.Duration(g.RandInt(100)+50) * time.Millisecond):
+		}
+
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
 }
 
 // Unpause unpauses all streams
