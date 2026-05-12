@@ -236,7 +236,7 @@ type DynamicEndpoints []DynamicEndpoint
 
 type DynamicEndpoint struct {
 	Setup    Sequence `yaml:"setup" json:"setup"`
-	Iterate  string   `yaml:"iterate" json:"iterate"`
+	Iterate  any      `yaml:"iterate" json:"iterate"`
 	Into     string   `yaml:"into" json:"into"`
 	Endpoint Endpoint `yaml:"endpoint" json:"endpoint"`
 }

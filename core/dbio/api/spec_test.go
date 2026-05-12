@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/flarco/g"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2554,4 +2555,115 @@ endpoints:
 	s, err := LoadSpec(spec)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ids"}, s.Queues, "Queues field should still be populated for backwards compat")
+}
+
+// TestDynamicEndpointsInlineYAMLArray ensures that DynamicEndpoint.Iterate
+// accepts a raw YAML array (incl. nested objects), not only a string.
+func TestDynamicEndpointsInlineYAMLArray(t *testing.T) {
+	spec := `
+name: "Inline YAML Iterate API"
+defaults:
+  state:
+    base_url: "https://api.example.com"
+
+dynamic_endpoints:
+  - iterate:
+      - model: 'res.partner'
+        fields: [id, name, email]
+      - model: 'product.product'
+        fields: [id, name, default_code]
+    into: 'state.endpoint'
+    endpoint:
+      name: '{snake(state.endpoint.model)}'
+      request:
+        url: "{state.base_url}/{state.endpoint.model}"
+      response:
+        records:
+          jmespath: "data[]"
+`
+
+	s, err := LoadSpec(spec)
+	require.NoError(t, err)
+
+	require.True(t, s.IsDynamic())
+	require.Equal(t, 1, len(s.DynamicEndpoints))
+
+	dynEndpoint := s.DynamicEndpoints[0]
+	assert.Equal(t, "state.endpoint", dynEndpoint.Into)
+
+	// YAML decoders typically produce []any with map[interface{}]interface{} or
+	// map[string]any depending on version; normalise via JSON round-trip to
+	// match how RenderDynamicEndpoints consumes the field.
+	var iterList []map[string]any
+	require.NoError(t, g.JSONConvert(dynEndpoint.Iterate, &iterList))
+	require.Len(t, iterList, 2)
+
+	assert.Equal(t, "res.partner", iterList[0]["model"])
+	assert.ElementsMatch(t, []any{"id", "name", "email"}, iterList[0]["fields"])
+	assert.Equal(t, "product.product", iterList[1]["model"])
+}
+
+// TestDynamicEndpointsInlineSingleObject ensures that a single inline
+// object (not wrapped in a list) is treated as a one-element iteration.
+func TestDynamicEndpointsInlineSingleObject(t *testing.T) {
+	spec := `
+name: "Inline Single Object Iterate API"
+defaults:
+  state:
+    base_url: "https://api.example.com"
+
+dynamic_endpoints:
+  - iterate:
+      model: 'res.partner'
+      fields: [id, name]
+    into: 'state.endpoint'
+    endpoint:
+      name: '{snake(state.endpoint.model)}'
+      request:
+        url: "{state.base_url}/{state.endpoint.model}"
+      response:
+        records:
+          jmespath: "data[]"
+`
+
+	s, err := LoadSpec(spec)
+	require.NoError(t, err)
+
+	dynEndpoint := s.DynamicEndpoints[0]
+	var asMap map[string]any
+	require.NoError(t, g.JSONConvert(dynEndpoint.Iterate, &asMap))
+	assert.Equal(t, "res.partner", asMap["model"])
+}
+
+// TestDynamicEndpointsStringIterateBackwardsCompat ensures that the existing
+// string forms (JSON literal and JMESPath expression) still parse into a string,
+// keeping older specs working unchanged after Iterate became `any`.
+func TestDynamicEndpointsStringIterateBackwardsCompat(t *testing.T) {
+	for _, tc := range []struct{ name, iterate string }{
+		{"json_literal", `["users", "orders"]`},
+		{"jmespath_expr", `state.config.resources[].name`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := `
+name: "Backwards Compat Iterate API"
+defaults:
+  state:
+    base_url: "https://api.example.com"
+
+dynamic_endpoints:
+  - iterate: '` + tc.iterate + `'
+    into: 'state.resource'
+    endpoint:
+      name: '{state.resource}'
+      request:
+        url: "{state.base_url}/{state.resource}"
+      response:
+        records:
+          jmespath: "data[]"
+`
+			s, err := LoadSpec(spec)
+			require.NoError(t, err)
+			assert.Equal(t, tc.iterate, s.DynamicEndpoints[0].Iterate, "string iterate should round-trip unchanged")
+		})
+	}
 }

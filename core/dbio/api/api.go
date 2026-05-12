@@ -888,52 +888,75 @@ func (ac *APIConnection) RenderDynamicEndpoints() (err error) {
 			setupState = baseEndpoint.State
 		}
 
-		// Evaluate the iterate expression to get the list of items
+		// Evaluate the iterate expression to get the list of items.
+		// `Iterate` can be:
+		//   1. a native YAML/JSON array (or single object) → use directly
+		//   2. a string starting with [ or { → JSON literal, parsed as-is (no template render)
+		//   3. any other string → rendered against state, then evaluated as a JMESPath expression
 		var iterList []any
 
-		// Check if it's a JSON literal (starts with [ or {) before rendering
-		// JSON literals should not be rendered as templates
-		trimmed := strings.TrimSpace(dynEndpoint.Iterate)
-		var iterExpr string
-
-		if strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
-			// Don't render JSON literals - they might contain { } that aren't templates
-			iterExpr = dynEndpoint.Iterate
-		} else {
-			// Render the iterate expression (for state variables like "state.table_list")
-			var err error
-			iterExpr, err = ac.renderString(dynEndpoint.Iterate, g.M("state", setupState))
-			if err != nil {
-				return g.Error(err, "could not render iterate expression: %s", dynEndpoint.Iterate)
+		switch iterVal := dynEndpoint.Iterate.(type) {
+		case nil:
+			return g.Error("dynamic endpoint definition %d: 'iterate' is required", dynIdx+1)
+		case []any:
+			// Native inline list (e.g. raw YAML array of strings or objects).
+			// Round-trip through JSON so nested YAML maps (`map[interface{}]interface{}`)
+			// are normalised to `map[string]any` for template/JMESPath consumption.
+			if err := g.JSONConvert(iterVal, &iterList); err != nil {
+				return g.Error(err, "could not normalise inline iterate list")
 			}
-		}
+		case map[string]any, map[any]any:
+			// Native inline single object — treat as a one-element list.
+			var normalised map[string]any
+			if err := g.JSONConvert(iterVal, &normalised); err != nil {
+				return g.Error(err, "could not normalise inline iterate object")
+			}
+			iterList = []any{normalised}
+		case string:
+			trimmed := strings.TrimSpace(iterVal)
+			var iterExpr string
+			if strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
+				// Don't render JSON literals - they might contain { } that aren't templates
+				iterExpr = iterVal
+			} else {
+				// Render the iterate expression (for state variables like "state.table_list")
+				var err error
+				iterExpr, err = ac.renderString(iterVal, g.M("state", setupState))
+				if err != nil {
+					return g.Error(err, "could not render iterate expression: %s", iterVal)
+				}
+			}
 
-		// Try to parse as JSON literal first (for arrays like '["a", "b", "c"]' or objects)
-		trimmed = strings.TrimSpace(iterExpr)
-		if strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
-			if err := g.Unmarshal(iterExpr, &iterList); err == nil {
-				// Successfully parsed as JSON literal
+			// Try to parse as JSON literal first (for arrays like '["a", "b", "c"]' or objects)
+			trimmed = strings.TrimSpace(iterExpr)
+			if strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
+				if err := g.Unmarshal(iterExpr, &iterList); err != nil {
+					return g.Error(err, "could not parse iterate expression as JSON: %s", iterExpr)
+				}
 				g.Debug("parsed iterate expression as JSON literal")
 			} else {
-				return g.Error(err, "could not parse iterate expression as JSON: %s", iterExpr)
-			}
-		} else {
-			// Evaluate as JMESPath expression
-			stateMap := ac.getStateMap(g.M("state", setupState))
-			result, err := jmespath.Search(iterExpr, stateMap)
-			if err != nil {
-				return g.Error(err, "could not evaluate iterate expression: %s", iterExpr)
-			}
-
-			// Convert result to array
-			switch v := result.(type) {
-			case []any:
-				iterList = v
-			default:
-				// Try to convert to array
-				if err := g.JSONConvert(result, &iterList); err != nil {
-					return g.Error(err, "iterate expression did not return an array: %s (got type %T)", iterExpr, result)
+				// Evaluate as JMESPath expression
+				stateMap := ac.getStateMap(g.M("state", setupState))
+				result, err := jmespath.Search(iterExpr, stateMap)
+				if err != nil {
+					return g.Error(err, "could not evaluate iterate expression: %s", iterExpr)
 				}
+
+				// Convert result to array
+				switch v := result.(type) {
+				case []any:
+					iterList = v
+				default:
+					// Try to convert to array
+					if err := g.JSONConvert(result, &iterList); err != nil {
+						return g.Error(err, "iterate expression did not return an array: %s (got type %T)", iterExpr, result)
+					}
+				}
+			}
+		default:
+			// Fallback: round-trip through JSON to normalise (e.g. []map[string]any or []string).
+			if err := g.JSONConvert(iterVal, &iterList); err != nil {
+				return g.Error(err, "dynamic endpoint definition %d: 'iterate' has unsupported type %T", dynIdx+1, iterVal)
 			}
 		}
 

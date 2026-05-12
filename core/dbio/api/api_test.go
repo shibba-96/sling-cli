@@ -1571,6 +1571,112 @@ func TestDynamicEndpointsErrors(t *testing.T) {
 	}
 }
 
+// TestDynamicEndpointsInlineYAMLIntegration exercises an inline YAML array of
+// objects as the dynamic-endpoint iterator. Each item is a nested object with
+// `model` and `fields`; the template references both to build the request URL
+// and query parameters. This proves the field accepts non-string YAML values
+// end-to-end (render → request → response).
+func TestDynamicEndpointsInlineYAMLIntegration(t *testing.T) {
+	type request struct {
+		path  string
+		query string
+	}
+	received := []request{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = append(received, request{path: r.URL.Path, query: r.URL.RawQuery})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		// Respond differently per path so we can verify routing.
+		switch r.URL.Path {
+		case "/res.partner":
+			json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{
+					{"id": 1, "name": "Acme", "email": "a@acme.com"},
+					{"id": 2, "name": "Globex", "email": "b@globex.com"},
+				},
+			})
+		case "/product.product":
+			json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{
+					{"id": 10, "name": "Widget", "default_code": "WGT-1"},
+				},
+			})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"data": []any{}})
+		}
+	}))
+	defer server.Close()
+
+	specYAML := `
+name: "Inline YAML Iterate API"
+defaults:
+  state:
+    base_url: "` + server.URL + `"
+
+dynamic_endpoints:
+  - iterate:
+      - model: 'res.partner'
+        fields: [id, name, email]
+      - model: 'product.product'
+        fields: [id, name, default_code]
+    into: 'state.endpoint'
+    endpoint:
+      name: '{state.endpoint.model}'
+      request:
+        url: "{state.base_url}/{state.endpoint.model}"
+      response:
+        records:
+          jmespath: "data[]"
+`
+
+	spec, err := LoadSpec(specYAML)
+	require.NoError(t, err)
+
+	ac, err := NewAPIConnection(context.Background(), spec, map[string]any{
+		"state":   map[string]any{},
+		"secrets": map[string]any{},
+	})
+	require.NoError(t, err)
+
+	// Bypass auth for the test (no auth block configured).
+	ac.State.Auth.Authenticated = true
+
+	endpoints, err := ac.ListEndpoints()
+	require.NoError(t, err)
+	require.Len(t, endpoints, 2, "expected one rendered endpoint per inline iterate item")
+
+	names := []string{}
+	for _, ep := range endpoints {
+		names = append(names, ep.Name)
+	}
+	assert.ElementsMatch(t, []string{"res.partner", "product.product"}, names)
+
+	// Read each endpoint and verify routing and record counts.
+	expectedCounts := map[string]int{
+		"res.partner":     2,
+		"product.product": 1,
+	}
+	for _, ep := range endpoints {
+		df, err := ac.ReadDataflow(ep.Name, APIStreamConfig{Limit: 100})
+		require.NoError(t, err, "ReadDataflow failed for %s", ep.Name)
+
+		data, err := df.Collect()
+		require.NoError(t, err, "Collect failed for %s", ep.Name)
+
+		assert.Equal(t, expectedCounts[ep.Name], len(data.Rows), "row count mismatch for endpoint %s", ep.Name)
+	}
+
+	// Make sure both endpoints were actually hit.
+	paths := []string{}
+	for _, r := range received {
+		paths = append(paths, r.path)
+	}
+	assert.Contains(t, paths, "/res.partner")
+	assert.Contains(t, paths, "/product.product")
+}
+
 func TestHeadersWithHyphens(t *testing.T) {
 	// Test extracting response headers that contain hyphens
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
