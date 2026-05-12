@@ -118,13 +118,28 @@ $ sling conns discover LOCALHOST_DEV
 
 ## Installation
 
+#### One-liner on Mac / Linux
+
+```shell
+curl -fsSL https://slingdata.io/install.sh | bash
+
+# You're good to go!
+sling -h
+```
+
+#### One-liner on Windows (PowerShell)
+
+```powershell
+irm https://slingdata.io/install.ps1 | iex
+
+# You're good to go!
+sling -h
+```
+
 #### Brew on Mac
 
 ```shell
 brew install slingdata-io/sling/sling
-
-# You're good to go!
-sling -h
 ```
 
 #### Scoop on Windows
@@ -132,21 +147,11 @@ sling -h
 ```powershell
 scoop bucket add sling https://github.com/slingdata-io/scoop-sling.git
 scoop install sling
-
-# You're good to go!
-sling -h
 ```
 
-#### Binary on Linux
+#### Manual binary download
 
-```bash
-curl -LO 'https://github.com/slingdata-io/sling-cli/releases/latest/download/sling_linux_amd64.tar.gz' \
-  && tar xzf sling_linux_amd64.tar.gz \
-  && rm -f sling_linux_amd64.tar.gz
-
-# You're good to go!
-sling -h
-```
+Pre-built binaries for macOS, Linux, and Windows are available on the [releases page](https://github.com/slingdata-io/sling-cli/releases).
 
 ### Compiling From Source
 
