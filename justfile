@@ -151,7 +151,7 @@ test-adbc-docker arch="amd64,arm64":
     #!/usr/bin/env bash
     set -e
     echo "TESTING ADBC DuckDB via Docker ({{arch}})"
-    bash cmd/sling/tests/pipelines/adbc/run_docker_test.sh "{{arch}}"
+    bash cmd/sling/tests/pipelines/adbc/duckdb/run_docker_test.sh "{{arch}}"
 
 # Clean build artifacts
 clean:
