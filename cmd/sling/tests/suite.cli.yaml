@@ -2267,4 +2267,4 @@
     cd cmd/sling/tests/specs/queue_only_omdb
     sling run -d pipeline.yaml 
   output_contains:
-    - 'records pushed to queue
+    - records pushed to queue
