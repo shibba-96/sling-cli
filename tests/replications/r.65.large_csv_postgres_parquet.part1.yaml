@@ -5,7 +5,7 @@ hooks:
   start:
     - type: command
       id: generate_csv
-      command: bash cmd/sling/tests/replications/r.65.large_csv_postgres_parquet.yaml.prep.sh
+      command: bash tests/replications/r.65.large_csv_postgres_parquet.yaml.prep.sh
 
     - type: query
       connection: '{target.name}'

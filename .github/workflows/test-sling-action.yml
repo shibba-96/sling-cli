@@ -24,4 +24,4 @@ jobs:
       - name: Run Replication
         uses: slingdata-io/sling-action@v1
         with:
-          command: run -r cmd/sling/tests/replications/r.00.yaml
+          command: run -r tests/replications/r.00.yaml

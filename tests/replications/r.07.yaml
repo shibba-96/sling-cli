@@ -6,7 +6,7 @@ defaults:
   object: 'main.{stream_file_folder}_{stream_file_name}'
 
 streams:
-  file://./cmd/sling/tests/files/parquet/*:
-  file://./cmd/sling/tests/files/*.csv:
+  file://./tests/files/parquet/*:
+  file://./tests/files/*.csv:
     columns: { "*": string }
-  file://./cmd/sling/tests/files/test?.json:
+  file://./tests/files/test?.json:

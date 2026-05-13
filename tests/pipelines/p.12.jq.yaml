@@ -11,7 +11,7 @@ steps:
           jq: ".data[]"
 
       streams:
-        file://cmd/sling/tests/files/test_jq.json:
+        file://tests/files/test_jq.json:
           object: public.test_jq
 
   # Verify the replication output
@@ -43,7 +43,7 @@ steps:
   - type: command
     command: >
       sling run
-      --src-stream file://cmd/sling/tests/files/test_jq.json
+      --src-stream file://tests/files/test_jq.json
       --src-options '{ jq: ".data[]" }'
       --stdout
       > /tmp/sling_jq_test_output.csv

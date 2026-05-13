@@ -102,5 +102,5 @@ hooks:
       query: DROP TABLE IF EXISTS public.test_definition_only_file_source
 
 streams:
-  cmd/sling/tests/files/test1.parquet:
+  tests/files/test1.parquet:
     object: public.test_definition_only_file_source

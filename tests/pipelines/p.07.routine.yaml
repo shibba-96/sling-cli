@@ -1,5 +1,5 @@
 env:
-  SLING_ROUTINES_DIR: cmd/sling/tests/pipelines
+  SLING_ROUTINES_DIR: tests/pipelines
   TEST_ENV_VAR: "environment_test_value"
   OMDB_API_KEY: ${OMDB_API_KEY}
 

@@ -50,5 +50,5 @@ hooks:
       query: DROP TABLE IF EXISTS mysql.test_load_local
 
 streams:
-  file://cmd/sling/tests/files/test1.1.csv:
+  file://tests/files/test1.1.csv:
     object: mysql.test_load_local

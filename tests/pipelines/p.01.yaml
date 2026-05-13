@@ -7,11 +7,11 @@ steps:
     value: value-from-pipeline
 
   - type: replication
-    path: cmd/sling/tests/replications/r.19.yaml
+    path: tests/replications/r.19.yaml
     env:
       RESET: 'true'
 
-  - replication: file://cmd/sling/tests/replications/r.19.yaml
+  - replication: file://tests/replications/r.19.yaml
 
   - replication: 
       source: postgres

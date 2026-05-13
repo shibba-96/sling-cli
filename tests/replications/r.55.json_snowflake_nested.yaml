@@ -4,7 +4,7 @@ target: SNOWFLAKE
 hooks:
   start:
     - type: command
-      command: bash cmd/sling/tests/replications/r.55.json_snowflake_nested.yaml.prep.sh
+      command: bash tests/replications/r.55.json_snowflake_nested.yaml.prep.sh
         
     - type: query
       connection: '{target.name}'

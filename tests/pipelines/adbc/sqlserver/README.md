@@ -35,7 +35,7 @@ parquet files in object storage, picked up by a single Sling replication.
 One-shot end-to-end (recommended):
 
 ```bash
-cd cmd/sling/tests/pipelines/adbc/sqlserver
+cd tests/pipelines/adbc/sqlserver
 ./run_pipeline.sh                  # full run, then docker compose down -v
 ./run_pipeline.sh --keep-up        # leave containers running for inspection
 ./run_pipeline.sh --cli-only       # skip the Python (uv) section
@@ -45,7 +45,7 @@ cd cmd/sling/tests/pipelines/adbc/sqlserver
 Manual sequence (if you want to step through):
 
 ```bash
-cd cmd/sling/tests/pipelines/adbc/sqlserver
+cd tests/pipelines/adbc/sqlserver
 docker compose up -d
 # wait for SQL Server to become healthy (~10–20s)
 docker inspect sling-adbc-mssql --format='{{.State.Health.Status}}'
@@ -63,16 +63,16 @@ sling conns test SEAWEED_S3
 
 # --- CLI pipeline (local parquet) ---
 cd ../../../../..
-sling run -p cmd/sling/tests/pipelines/adbc/sqlserver/p.41.adbc_sqlserver.yaml
+sling run -p tests/pipelines/adbc/sqlserver/p.41.adbc_sqlserver.yaml
 
 # --- Python (S3 + 100k rows + stream_arrow) ---
-uv run cmd/sling/tests/pipelines/adbc/sqlserver/run_pipeline.py
+uv run tests/pipelines/adbc/sqlserver/run_pipeline.py
 ```
 
 Stop and remove the containers when done:
 
 ```bash
-cd cmd/sling/tests/pipelines/adbc/sqlserver
+cd tests/pipelines/adbc/sqlserver
 docker compose down -v
 ```
 

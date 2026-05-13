@@ -6,7 +6,7 @@ steps:
       defaults:
         mode: full-refresh
       streams:
-        cmd/sling/tests/files/test1.parquet:
+        tests/files/test1.parquet:
           object: file:///tmp/sling/arrow_test_output.csv
 
   # Verify the output file has data rows (header + data rows)

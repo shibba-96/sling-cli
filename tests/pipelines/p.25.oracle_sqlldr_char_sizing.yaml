@@ -26,7 +26,7 @@ steps:
       defaults:
         mode: full-refresh
       streams:
-        file://cmd/sling/tests/files/test_wide_columns.csv:
+        file://tests/files/test_wide_columns.csv:
           object: SYSTEM.TEST_SQLLDR_CHAR
           target_options:
             use_bulk: true

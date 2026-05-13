@@ -31,7 +31,7 @@ steps:
   # Write to S3 with file_max_rows=10 (should create 3 files)
   - type: replication
     id: write_to_s3_first
-    path: cmd/sling/tests/pipelines/p.05.replication.yaml
+    path: tests/pipelines/p.05.replication.yaml
     on_failure: abort
 
   # List files created
@@ -58,7 +58,7 @@ steps:
   # Write again - should delete old files and create 1 new file
   - type: replication
     id: write_to_s3_second
-    path: cmd/sling/tests/pipelines/p.05.replication.yaml
+    path: tests/pipelines/p.05.replication.yaml
     on_failure: abort
 
   # List files again to check if old ones still exist

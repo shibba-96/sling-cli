@@ -19,48 +19,48 @@
 
 - id: 4
   name: Run sling with CSV source and POSTGRES target
-  run: 'cat cmd/sling/tests/files/test1.1.csv | sling run --tgt-conn POSTGRES --tgt-object public.my_table --mode full-refresh'
+  run: 'cat tests/files/test1.1.csv | sling run --tgt-conn POSTGRES --tgt-object public.my_table --mode full-refresh'
   rows: 18
 
 - id: 5
   name: Run sling with CSV source and POSTGRES target
-  run: 'sling run --src-stream file://cmd/sling/tests/files/test1.1.csv --tgt-conn POSTGRES --tgt-object public.my_table --mode full-refresh'
+  run: 'sling run --src-stream file://tests/files/test1.1.csv --tgt-conn POSTGRES --tgt-object public.my_table --mode full-refresh'
   rows: 18
   after: [4]
 
 - id: 6
   name: Run sling with CSV source and MSSQL target
-  run: 'sling run --src-stream file://cmd/sling/tests/files/test1.1.csv --tgt-conn MSSQL --tgt-object dbo.my_table --mode full-refresh --tgt-options ''use_bulk: false'''
+  run: 'sling run --src-stream file://tests/files/test1.1.csv --tgt-conn MSSQL --tgt-object dbo.my_table --mode full-refresh --tgt-options ''use_bulk: false'''
   rows: 18
 
 - id: 7
   name: Run sling with CSV source and custom options
-  run: 'sling run --src-stream file://cmd/sling/tests/files/test4.csv --src-options ''{ delimiter: "|", escape: "\\" }'' --stdout > /dev/null'
+  run: 'sling run --src-stream file://tests/files/test4.csv --src-options ''{ delimiter: "|", escape: "\\" }'' --stdout > /dev/null'
   rows: 4
 
 - id: 8
   name: Run sling with gzipped CSV source and POSTGRES target
-  run: 'cat cmd/sling/tests/files/test1.1.csv.gz | sling run --tgt-conn POSTGRES --tgt-object public.my_table1 --mode full-refresh'
+  run: 'cat tests/files/test1.1.csv.gz | sling run --tgt-conn POSTGRES --tgt-object public.my_table1 --mode full-refresh'
   rows: 18
 
 - id: 9
   name: Run sling with gzipped CSV source and MYSQL target
-  run: 'sling run --src-stream ''file://cmd/sling/tests/files/test1.1.csv.gz'' --tgt-conn MYSQL --tgt-object mysql.my_table --mode full-refresh --tgt-options ''use_bulk: false'''
+  run: 'sling run --src-stream ''file://tests/files/test1.1.csv.gz'' --tgt-conn MYSQL --tgt-object mysql.my_table --mode full-refresh --tgt-options ''use_bulk: false'''
   rows: 18
 
 - id: 10
   name: Run sling with JSON source and POSTGRES target
-  run: 'cat cmd/sling/tests/files/test3.json | sling run --src-options "flatten: true" --tgt-conn POSTGRES --tgt-object public.my_table2 --tgt-options ''use_bulk: false'' --mode full-refresh'
+  run: 'cat tests/files/test3.json | sling run --src-options "flatten: true" --tgt-conn POSTGRES --tgt-object public.my_table2 --tgt-options ''use_bulk: false'' --mode full-refresh'
   rows: 1
 
 - id: 11
   name: Run sling with JSON source and POSTGRES target
-  run: 'sling run --src-stream ''file://cmd/sling/tests/files/test3.json''  --src-options "flatten: true" --tgt-conn POSTGRES --tgt-object public.my_table3 --tgt-options ''use_bulk: false'' --mode full-refresh'
+  run: 'sling run --src-stream ''file://tests/files/test3.json''  --src-options "flatten: true" --tgt-conn POSTGRES --tgt-object public.my_table3 --tgt-options ''use_bulk: false'' --mode full-refresh'
   rows: 1
 
 - id: 12
   name: Run sling with CSV source and no header
-  run: 'sling run --src-stream ''file://cmd/sling/tests/files/test6.csv'' --stdout -d --src-options ''{ header: false }'' > /dev/null'
+  run: 'sling run --src-stream ''file://tests/files/test6.csv'' --stdout -d --src-options ''{ header: false }'' > /dev/null'
   rows: 2
 
 - id: 13
@@ -101,7 +101,7 @@
 
 - id: 18
   name: Run sling with gzipped CSV source and POSTGRES target with ignore existing
-  run: 'cat cmd/sling/tests/files/test1.1.csv.gz | sling run --tgt-conn POSTGRES --tgt-object public.my_table --mode full-refresh --tgt-options ''ignore_existing: true'''
+  run: 'cat tests/files/test1.1.csv.gz | sling run --tgt-conn POSTGRES --tgt-object public.my_table --mode full-refresh --tgt-options ''ignore_existing: true'''
   rows: 0
   after: [17]
   output_contains:
@@ -117,7 +117,7 @@
 
 - id: 20
   name: Run sling with binary CSV source and POSTGRES target
-  run: 'sling run --src-stream file://cmd/sling/tests/files/binary/test.bytes.csv --tgt-conn postgres --tgt-object public.my_table_bytes'
+  run: 'sling run --src-stream file://tests/files/binary/test.bytes.csv --tgt-conn postgres --tgt-object public.my_table_bytes'
   rows: 1
 
 - id: 21
@@ -220,42 +220,42 @@
 
 - id: 35
   name: Run sling with replication configuration 05
-  run: 'sling run -r cmd/sling/tests/replications/r.05.yaml'
+  run: 'sling run -r tests/replications/r.05.yaml'
   streams: 12
 
 - id: 36
   name: Run sling with replication configuration 05 and streams
-  run: 'sling run -r cmd/sling/tests/replications/r.05.yaml --streams ''s3://ocral/mlo.community.test/channels.json,s3://ocral/mlo.community.test/random/'''
+  run: 'sling run -r tests/replications/r.05.yaml --streams ''s3://ocral/mlo.community.test/channels.json,s3://ocral/mlo.community.test/random/'''
   streams: 2
   after: [35]
 
 - id: 37
   name: Run sling with replication configuration 06
-  run: 'sling run -r cmd/sling/tests/replications/r.06.yaml'
+  run: 'sling run -r tests/replications/r.06.yaml'
   streams: 3
 
 - id: 38
   name: Run sling with replication configuration 07
-  run: sling run -r cmd/sling/tests/replications/r.07.yaml
+  run: sling run -r tests/replications/r.07.yaml
   streams: 16
   group: sqlite
 
 - id: 39
   name: Run sling with replication configuration 08
   group: sqlite
-  run: 'sling run -r cmd/sling/tests/replications/r.08.yaml'
+  run: 'sling run -r tests/replications/r.08.yaml'
   streams: 4
 
 - id: 40
   name: Run sling with replication configuration 09 and constraints
-  run: '# sling run -r cmd/sling/tests/replications/r.09.yaml'
+  run: '# sling run -r tests/replications/r.09.yaml'
   group: sqlite
   streams: '>1'
   fails: 2
 
 - id: 41
   name: Run sling with replication configuration 09
-  run: 'sling run -d -r cmd/sling/tests/replications/r.09.yaml'
+  run: 'sling run -d -r tests/replications/r.09.yaml'
   group: sqlite
   streams: '>1'
   output_contains:
@@ -265,12 +265,12 @@
 - id: 42
   name: Run sling with replication configuration 09 and tags
   group: sqlite
-  run: 'sling run -r cmd/sling/tests/replications/r.09.yaml --streams tag:my_table'
+  run: 'sling run -r tests/replications/r.09.yaml --streams tag:my_table'
   streams: 3
 
 - id: 43
   name: Run sling with replication configuration 10
-  run: 'sling run -d -r cmd/sling/tests/replications/r.10.yaml'
+  run: 'sling run -d -r tests/replications/r.10.yaml'
   rows: 1018
   streams: 1
   output_contains:
@@ -278,7 +278,7 @@
 
 - id: 44
   name: Run sling with replication configuration 11 and year parameter
-  run: 'sling run -r cmd/sling/tests/replications/r.11.yaml'
+  run: 'sling run -r tests/replications/r.11.yaml'
   env:
     YEAR: 2005
   streams: 2
@@ -287,12 +287,12 @@
 
 - id: 45
   name: Run sling with replication configuration 12
-  run: 'sling run -r cmd/sling/tests/replications/r.12.yaml'
+  run: 'sling run -r tests/replications/r.12.yaml'
   streams: 1
 
 - id: 46
   name: Run sling with replication configuration 15
-  run: 'sling run -r cmd/sling/tests/replications/r.15.yaml # iceberg & delta'
+  run: 'sling run -r tests/replications/r.15.yaml # iceberg & delta'
   streams: 3
   output_contains:
     - 999 rows
@@ -302,29 +302,29 @@
 - id: 48
   after: [46]
   name: Run sling with replication configuration 14
-  run: 'sling run -d -r cmd/sling/tests/replications/r.14.yaml'
+  run: 'sling run -d -r tests/replications/r.14.yaml'
   streams: 5
 
 - id: 49
   name: Run sling with replication configuration 14 (specific streams)
-  run: 'sling run -r cmd/sling/tests/replications/r.14.yaml --streams cmd/sling/tests/files/test1.csv,cmd/sling/tests/files/test1.upsert.csv # file incremental. Second run should have no new rows'
+  run: 'sling run -r tests/replications/r.14.yaml --streams tests/files/test1.csv,tests/files/test1.upsert.csv # file incremental. Second run should have no new rows'
   after: [48]
   rows: 0
 
 - id: 50
   name: Run sling with replication configuration 16
-  run: 'sling run -r cmd/sling/tests/replications/r.16.yaml'
+  run: 'sling run -r tests/replications/r.16.yaml'
   rows: 90
   streams: 1
 
 - id: 51
   name: Run sling with task configuration
-  run: 'sling run -c cmd/sling/tests/task.yaml'
+  run: 'sling run -c tests/task.yaml'
   rows: 24
 
 - id: 52
   name: Run sling with Parquet source
-  run: 'sling run --src-stream ''file://cmd/sling/tests/files/parquet'' --stdout > /dev/null'
+  run: 'sling run --src-stream ''file://tests/files/parquet'' --stdout > /dev/null'
   rows: 1018
 
 - id: 53
@@ -336,12 +336,12 @@
 
 - id: 54
   name: Run sling with CSV source and single quote
-  run: 'sling run --src-conn LOCAL --src-stream file://cmd/sling/tests/files/test7.csv --src-options ''{ delimiter: "|", quote: "''\''''", escape: "\\" }'' --stdout > /dev/null'
+  run: 'sling run --src-conn LOCAL --src-stream file://tests/files/test7.csv --src-options ''{ delimiter: "|", quote: "''\''''", escape: "\\" }'' --stdout > /dev/null'
   rows: 3
 
 - id: 55
   name: Run sling with CSV source and $symbol quote
-  run: 'sling run --src-conn LOCAL --src-stream file://cmd/sling/tests/files/test8.csv --src-options ''{ delimiter: "|", quote: "$", escape: "\\" }'' --stdout > /dev/null'
+  run: 'sling run --src-conn LOCAL --src-stream file://tests/files/test8.csv --src-options ''{ delimiter: "|", quote: "$", escape: "\\" }'' --stdout > /dev/null'
   rows: 3
 
 - id: 56
@@ -373,7 +373,7 @@
   run: |
     rm -rf /tmp/sling/output8
     
-    sling run --src-stream file://cmd/sling/tests/files/test1.csv --tgt-object 'file:///tmp/sling/output8/{part_year}/{part_month}' -d --tgt-options '{ format: parquet }' --update-key create_dt
+    sling run --src-stream file://tests/files/test1.csv --tgt-object 'file:///tmp/sling/output8/{part_year}/{part_month}' -d --tgt-options '{ format: parquet }' --update-key create_dt
     
     ls -l /tmp/sling/output8
   rows: 1000
@@ -383,14 +383,14 @@
 
 - id: 60
   name: Run sling writing to partitioned parquet (aws)
-  run: 'FORMAT=parquet sling run -d -r cmd/sling/tests/replications/r.17.yaml --mode full-refresh'
+  run: 'FORMAT=parquet sling run -d -r tests/replications/r.17.yaml --mode full-refresh'
   rows: 1002
   output_contains:
     - partition_by (
 
 - id: 61
   name: Run sling with incremental writing to partitioned parquet (aws)
-  run: 'FORMAT=parquet sling run -d -r cmd/sling/tests/replications/r.17.yaml'
+  run: 'FORMAT=parquet sling run -d -r tests/replications/r.17.yaml'
   rows: 40
   after: [60]
   output_contains:
@@ -398,7 +398,7 @@
 
 - id: 62
   name: Run sling writing to partitioned csv (aws)
-  run: 'FORMAT=csv sling run -d -r cmd/sling/tests/replications/r.17.yaml --mode full-refresh'
+  run: 'FORMAT=csv sling run -d -r tests/replications/r.17.yaml --mode full-refresh'
   rows: 1002
   after: [61]
   output_contains:
@@ -430,7 +430,7 @@
 
 - id: 67
   name: 'Run sling hooks & source partitioned (backfill)'
-  run: 'sling run -r cmd/sling/tests/replications/r.19.yaml -d --mode backfill --range 2018-01-01,2019-05-01'
+  run: 'sling run -r tests/replications/r.19.yaml -d --mode backfill --range 2018-01-01,2019-05-01'
   after: [61, 46, 48]
   env:
     RESET: 'true'
@@ -441,7 +441,7 @@
 
 - id: 68
   name: 'Run sling hooks & source partitioned (incremental)'
-  run: 'sling run -r cmd/sling/tests/replications/r.19.yaml -d --streams ''test1k_postgres_pg_parquet'''
+  run: 'sling run -r tests/replications/r.19.yaml -d --streams ''test1k_postgres_pg_parquet'''
   rows: '>78'
   after: [67, 46, 48]
   output_contains:
@@ -451,7 +451,7 @@
 
 - id: 69
   name: Run sling pipeline 01
-  run: 'sling run -p cmd/sling/tests/pipelines/p.01.yaml -d'
+  run: 'sling run -p tests/pipelines/p.01.yaml -d'
   after: [68]
   output_contains:
     - 'executed step "step-03-replication"'
@@ -472,8 +472,8 @@
   streams: 33
   group: duckdb
   env:
-    YAML_FILE: cmd/sling/tests/replications/r.20.chunking.yaml
-    YAML_EXPR_FILE: cmd/sling/tests/replications/r.20.chunking.expr.yaml
+    YAML_FILE: tests/replications/r.20.chunking.yaml
+    YAML_EXPR_FILE: tests/replications/r.20.chunking.expr.yaml
   output_contains:
     - '"update_dt" >= ''2018-11-21'
     - '"id" >= 601 and "id" <= 800'
@@ -490,21 +490,21 @@
 
 - id: 71
   name: Run sling pipeline 02
-  run: 'sling run -p cmd/sling/tests/pipelines/p.02.yaml'
+  run: 'sling run -p tests/pipelines/p.02.yaml'
   output_contains:
     - state.copy_sftp_azure.bytes_written    # ensures a file was copied from SFTP to AZURE
     - state.copy_s3_azure.bytes_written      # ensures a file was copied from S3 to AZURE
 
 - id: 72
   name: Run sling to test column casing
-  run: 'sling run -d -r cmd/sling/tests/replications/r.21.yaml'
+  run: 'sling run -d -r tests/replications/r.21.yaml'
   streams: 1
   output_contains:
     - test1k_clickhouse_pg_first_name
 
 - id: 73
   name: Run sling mysql bit
-  run: 'sling run -d -r cmd/sling/tests/replications/r.22.mysql_bit_type.yaml'
+  run: 'sling run -d -r tests/replications/r.22.mysql_bit_type.yaml'
   streams: 1
   output_contains:
     - execution succeeded
@@ -512,7 +512,7 @@
 - id: 74
   name: Run sling iceberg_r2 insert
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.23.iceberg_write.yaml
+    sling run -d -r tests/replications/r.23.iceberg_write.yaml
     sling run --src-conn $TARGET --src-stream public.test1k_mariadb_pg --stdout -l 5
   env:
     TARGET: iceberg_r2
@@ -529,7 +529,7 @@
 - id: 75
   name: Run sling iceberg_s3 insert
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.23.iceberg_write.yaml
+    sling run -d -r tests/replications/r.23.iceberg_write.yaml
     sling run --src-conn $TARGET --src-stream public.test1k_mariadb_pg --stdout -l 5
   env:
     TARGET: iceberg_s3
@@ -547,7 +547,7 @@
 # - id: 76
 #   name: Run sling iceberg_lakekeeper insert
 #   run: |
-#     sling run -d -r cmd/sling/tests/replications/r.23.iceberg_write.yaml
+#     sling run -d -r tests/replications/r.23.iceberg_write.yaml
 #     sling run --src-conn $TARGET --src-stream public.test1k_mariadb_pg --stdout -l 5
 #   env:
 #     TARGET: iceberg_lakekeeper
@@ -564,7 +564,7 @@
 - id: 77
   name: Run sling iceberg_sql insert
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.23.iceberg_write.yaml
+    sling run -d -r tests/replications/r.23.iceberg_write.yaml
     sling run --src-conn $TARGET --src-stream public.test1k_mariadb_pg --stdout -l 5
   env:
     TARGET: iceberg_sql
@@ -581,7 +581,7 @@
 - id: 78
   name: Run sling iceberg_glue insert
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.23.iceberg_write.yaml
+    sling run -d -r tests/replications/r.23.iceberg_write.yaml
     sling run --src-conn $TARGET --src-stream public.test1k_mariadb_pg --stdout -l 5
   env:
     TARGET: iceberg_glue
@@ -598,7 +598,7 @@
 # - id: 79
 #   name: Run sling iceberg_gcp insert
 #   run: |
-#     sling run -d -r cmd/sling/tests/replications/r.23.iceberg_write.yaml
+#     sling run -d -r tests/replications/r.23.iceberg_write.yaml
 #     sling run --src-conn $TARGET --src-stream public.test1k_mariadb_pg --stdout -l 5
 #   streams: 2
 #   env:
@@ -613,7 +613,7 @@
 
 - id: 80
   name: Prometheus buffer fix test
-  run: sling run -d -r cmd/sling/tests/replications/r.25.prometheus_buffer.yaml
+  run: sling run -d -r tests/replications/r.25.prometheus_buffer.yaml
   streams: 1
   min_rows: 1
   output_contains:
@@ -624,14 +624,14 @@
 
 - id: 81
   name: Prometheus issue 551 (https://github.com/slingdata-io/sling-cli/issues/551)
-  run: sling run -d -r cmd/sling/tests/replications/r.26.prometheus_issue551.yaml
+  run: sling run -d -r tests/replications/r.26.prometheus_issue551.yaml
   streams: 1
   output_contains:
     - 'using chunked streaming'
 
 - id: 82
   name: Pipeline copy single file from list result (fix for duplicate filename issue)
-  run: sling run -d -p cmd/sling/tests/pipelines/p.03.test_copy_fix_demonstration.yaml
+  run: sling run -d -p tests/pipelines/p.03.test_copy_fix_demonstration.yaml
   output_contains:
     - 'copying single file from'
     - 'Copy result:'
@@ -642,7 +642,7 @@
 
 # - id: 83
 #   name: Delta R2 secret creation test (https://github.com/slingdata-io/sling-cli/issues/564)
-#   run: sling run -d -r cmd/sling/tests/replications/r.27.delta_r2.yaml
+#   run: sling run -d -r tests/replications/r.27.delta_r2.yaml
 #   err: true  # We expect this to fail because the delta file doesn't exist
 #   output_contains:
 #     - "delta_scan('r2://"  # Verifies the URL was transformed from s3:// to r2://
@@ -652,7 +652,7 @@
 
 - id: 84
   name: Oracle NUMBER scale fix (https://github.com/slingdata-io/sling-cli/issues/584)
-  run: sling run -r cmd/sling/tests/replications/r.28.oracle_number_scale.yaml
+  run: sling run -r tests/replications/r.28.oracle_number_scale.yaml
   env:
     SCHEMA: ORACLE
     SOURCE: ORACLE
@@ -662,7 +662,7 @@
 
 - id: 85
   name: Oracle NUMBER scale fix (https://github.com/slingdata-io/sling-cli/issues/584)
-  run: sling run -r cmd/sling/tests/replications/r.28.oracle_number_scale.yaml
+  run: sling run -r tests/replications/r.28.oracle_number_scale.yaml
   env:
     SCHEMA: ORACLE
     SOURCE: ORACLE
@@ -672,19 +672,19 @@
 
 - id: 86
   name: MSSQL to parquet overwrite fix (https://github.com/slingdata-io/sling-cli/issues/588)
-  run: sling run -r cmd/sling/tests/replications/r.29.mssql_parquet_overwrite.yaml
+  run: sling run -r tests/replications/r.29.mssql_parquet_overwrite.yaml
   output_contains:
     - 'execution succeeded'
 
 - id: 87
   name: MSSQL to Azure Storage multiple files fix (https://github.com/slingdata-io/sling-cli/issues/586)
-  run: sling run -r cmd/sling/tests/replications/r.30.mssql_azure_multiple_files.yaml
+  run: sling run -r tests/replications/r.30.mssql_azure_multiple_files.yaml
   output_contains:
     - 'execution succeeded'
 
 - id: 88
   name: Test timestamp to string casting without quotes
-  run: sling run -r cmd/sling/tests/replications/r.31.timestamp_string_quotes.yaml --debug
+  run: sling run -r tests/replications/r.31.timestamp_string_quotes.yaml --debug
   rows: 3
   group: duckdb
   output_contains:
@@ -693,7 +693,7 @@
 
 - id: 89
   name: Test inspect hook for database tables and files
-  run: sling run -p cmd/sling/tests/pipelines/p.04.test_inspect_hook.yaml
+  run: sling run -p tests/pipelines/p.04.test_inspect_hook.yaml
   output_contains:
     - 'Database table inspection results:'
     - 'S3 file inspection results:'
@@ -707,7 +707,7 @@
 
 - id: 90
   name: starrocks empty_as_null
-  run: sling run -d -r cmd/sling/tests/replications/r.24.starrocks_empty_as_null.yaml
+  run: sling run -d -r tests/replications/r.24.starrocks_empty_as_null.yaml
   streams: 1
   rows: 5
   output_contains:
@@ -718,8 +718,8 @@
 - id: 91
   name: Test encoding source options (latin1, windows1252, utf8_bom) and target encoding
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.32.encoding_test.yaml
-    sling run -d -r cmd/sling/tests/replications/r.33.encoding_target_test.yaml
+    sling run -d -r tests/replications/r.32.encoding_test.yaml
+    sling run -d -r tests/replications/r.33.encoding_target_test.yaml
   output_contains:
     - 'Latin1 results:'
     - 'José'
@@ -733,7 +733,7 @@
 
 - id: 92
   name: Test encoding garbled output when not specified
-  run: sling run -d -r cmd/sling/tests/replications/r.34.encoding_garbled_test.yaml
+  run: sling run -d -r tests/replications/r.34.encoding_garbled_test.yaml
   output_contains:
     - 'SUCCESS: Correct output contains proper special characters'
     - 'SUCCESS: Garbled output has corrupted special characters as expected'
@@ -741,7 +741,7 @@
 
 - id: 93
   name: Test transform functions
-  run: sling run -d -r cmd/sling/tests/replications/r.35.transform_functions_test.yaml
+  run: sling run -d -r tests/replications/r.35.transform_functions_test.yaml
   output_contains:
     - 'Transform Functions Test Results'
     - 'execution succeeded'
@@ -750,7 +750,7 @@
 
 - id: 94
   name: Test mongo column casing selection
-  run: sling run -d -r cmd/sling/tests/replications/r.36.mongo_snowflake_select.yaml
+  run: sling run -d -r tests/replications/r.36.mongo_snowflake_select.yaml
   output_contains:
     - '"projection":[{"Key":"id","Value":1},{"Key":"first_name","Value":1},{"Key":"last_name","Value":1}]}'
   output_does_not_contain:
@@ -759,7 +759,7 @@
 
 - id: 95
   name: Test decimal to string casting with proper varchar length (https://github.com/slingdata-io/sling-cli/issues/599)
-  run: sling run -d -r cmd/sling/tests/replications/r.37.decimal_to_string_cast.yaml
+  run: sling run -d -r tests/replications/r.37.decimal_to_string_cast.yaml
   output_contains:
     - 'Result from Snowflake:'
     - '"100.000"'
@@ -768,13 +768,13 @@
 
 - id: 96
   name: Test extra files deletion (https://github.com/slingdata-io/sling-cli/issues/614)
-  run: sling run -d -p cmd/sling/tests/pipelines/p.05.extra_parquet_files_deletion.yaml
+  run: sling run -d -p tests/pipelines/p.05.extra_parquet_files_deletion.yaml
   output_does_not_contain:
     - step (extra_files_check) failed
 
 - id: 97
   name: Test to ensure snowflake compression for upload
-  run: sling run -d -r cmd/sling/tests/replications/r.38.snowflake_compression_test.yaml
+  run: sling run -d -r tests/replications/r.38.snowflake_compression_test.yaml
   output_contains:
     - compression=zstd
     - compression=gzip
@@ -782,8 +782,8 @@
 - id: 98
   name: Test SLING_LOADED_AT column type when casting all columns to string
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.39.sling_loaded_at_string_cast.yaml
-    sling run -d -r cmd/sling/tests/replications/r.40.sling_loaded_at_csv_string_cast.yaml
+    sling run -d -r tests/replications/r.39.sling_loaded_at_string_cast.yaml
+    sling run -d -r tests/replications/r.40.sling_loaded_at_csv_string_cast.yaml
   output_contains:
     - 'SUCCESS: _SLING_LOADED_AT is correctly kept as TIMESTAMP even when all columns are cast to string (Postgres source)'
     - "SUCCESS: _SLING_LOADED_AT is correctly kept as TIMESTAMP even when all columns are cast to string (CSV source)"
@@ -791,22 +791,22 @@
 # - id: 99
 #   name: Test empty dataset exporting with Parquet (https://github.com/slingdata-io/sling-cli/issues/598)
 #   run: |
-#     sling run -d -r cmd/sling/tests/replications/r.41.redshit_empty_parquet.yaml
+#     sling run -d -r tests/replications/r.41.redshit_empty_parquet.yaml
 #   output_contains:
 #     - no data or records found in stream
 
 - id: 100
   name: Test excluding column when exporting to Parquet https://github.com/slingdata-io/sling-cli/issues/607)
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.42.mssql_exclude_column_issue607.yaml
+    sling run -d -r tests/replications/r.42.mssql_exclude_column_issue607.yaml
   output_contains:
     - 'extra_col column count in parquet file: 0'
 
 - id: 101
   name: Test Azure Table incremental mode to PostgreSQL
   run: |
-    MODE=full-refresh sling run -d -r cmd/sling/tests/replications/r.43.azuretable_incremental_postgres.yaml --limit 5
-    MODE=incremental sling run -d -r cmd/sling/tests/replications/r.43.azuretable_incremental_postgres.yaml
+    MODE=full-refresh sling run -d -r tests/replications/r.43.azuretable_incremental_postgres.yaml --limit 5
+    MODE=incremental sling run -d -r tests/replications/r.43.azuretable_incremental_postgres.yaml
   streams: 1
   output_contains:
     - 'Loaded 5 rows into public.test1k_azuretable_pg'
@@ -816,7 +816,7 @@
 
 - id: 102
   name: Test staged transforms with MySQL source and PostgreSQL target
-  run: sling run -d -r cmd/sling/tests/replications/r.44.staged_transforms_test.yaml
+  run: sling run -d -r tests/replications/r.44.staged_transforms_test.yaml
   streams: 3
   rows: 15  # 3 * 5 = 15
   output_contains:
@@ -825,7 +825,7 @@
 
 - id: 103
   name: Test Exasol large CSV file ingestion (100K rows)
-  run: sling run -d -r cmd/sling/tests/replications/r.45.exasol_large_csv.yaml
+  run: sling run -d -r tests/replications/r.45.exasol_large_csv.yaml
   streams: 1
   rows: 100000
   output_contains:
@@ -836,8 +836,8 @@
 - id: 104
   name: Test PostgreSQL & BigQury TIME datatype preservation
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.46.postgres_time_datatype.yaml
-    sling run -d -r cmd/sling/tests/replications/r.48.bigquery_time_datatype.yaml
+    sling run -d -r tests/replications/r.46.postgres_time_datatype.yaml
+    sling run -d -r tests/replications/r.48.bigquery_time_datatype.yaml
   output_contains:
     - '| time without time zone |'
     - '| time with time zone    |'
@@ -861,17 +861,17 @@
 - id: 105
   name: Test MSSQL uniqueidentifier datatype preservation
   run: |
-    sling conns exec mssql file://cmd/sling/tests/replications/r.47.mssql_uniqueidentifier.sql
-    SLING_CLI_TOKEN='' sling run -d -r cmd/sling/tests/replications/r.47.mssql_uniqueidentifier.yaml
-    sling run -d -r cmd/sling/tests/replications/r.47.mssql_uniqueidentifier.postgres.yaml
-    # sling run -d -r cmd/sling/tests/replications/r.47.fabric_uniqueidentifier.yaml
+    sling conns exec mssql file://tests/replications/r.47.mssql_uniqueidentifier.sql
+    SLING_CLI_TOKEN='' sling run -d -r tests/replications/r.47.mssql_uniqueidentifier.yaml
+    sling run -d -r tests/replications/r.47.mssql_uniqueidentifier.postgres.yaml
+    # sling run -d -r tests/replications/r.47.fabric_uniqueidentifier.yaml
   output_contains:
     - "execution succeeded"
     - "DROP TABLE public.unique_identifier_test2"
 
 - id: 106
   name: Test MSSQL to BigQuery BIGNUMERIC conversion for high precision/scale decimals
-  run: sling run -d -r cmd/sling/tests/replications/r.49.mssql_bigquery_bignumeric.yaml
+  run: sling run -d -r tests/replications/r.49.mssql_bigquery_bignumeric.yaml
   streams: 1
   rows: 3
   output_contains:
@@ -883,7 +883,7 @@
 
 - id: 107
   name: Test CSV to BigQuery BIGNUMERIC conversion for high scale decimal values
-  run: sling run -d -r cmd/sling/tests/replications/r.50.csv_bigquery_bignumeric.yaml
+  run: sling run -d -r tests/replications/r.50.csv_bigquery_bignumeric.yaml
   streams: 1
   rows: 10
   output_contains:
@@ -907,7 +907,7 @@
 
 - id: 108
   name: Run XML to PostgreSQL import test
-  run: 'sling run -r cmd/sling/tests/replications/r.51.xml_postgres_import.yaml'
+  run: 'sling run -r tests/replications/r.51.xml_postgres_import.yaml'
   streams: 1
   rows: 5
   output_contains:
@@ -921,7 +921,7 @@
 
 # - id: 109
 #   name: Test API -- Sling Platform
-#   run: sling run -r cmd/sling/tests/replications/apis/r.sling_platform.yaml -d
+#   run: sling run -r tests/replications/apis/r.sling_platform.yaml -d
 #   streams: 3
 #   output_contains:
 #     - 'execution succeeded'
@@ -936,17 +936,17 @@
 - id: 110
   name: Test API -- Sling Stripe
   run: |
-    SLING_STATE=postgres/sling_state.stripe sling run -r cmd/sling/tests/replications/apis/r.stripe.yaml
+    SLING_STATE=postgres/sling_state.stripe sling run -r tests/replications/apis/r.stripe.yaml
 
     # test without SLING_STATE, to use DB incremental value
-    sling run -r cmd/sling/tests/replications/apis/r.stripe.yaml --streams customer -d
+    sling run -r tests/replications/apis/r.stripe.yaml --streams customer -d
   output_contains:
     - 'execution succeeded'
     - 'fetched incremental value from DB'
 
 - id: 111
   name: Run AWS S3 file splitting test
-  run: 'sling run -r cmd/sling/tests/replications/r.52.parquet_file_splitting.yaml'
+  run: 'sling run -r tests/replications/r.52.parquet_file_splitting.yaml'
   env:
     MY_TARGET: aws_s3
   streams: 1
@@ -956,7 +956,7 @@
 
 - id: 112
   name: Run AZURE_STORAGE file splitting test
-  run: 'sling run -r cmd/sling/tests/replications/r.52.parquet_file_splitting.yaml'
+  run: 'sling run -r tests/replications/r.52.parquet_file_splitting.yaml'
   env:
     MY_TARGET: AZURE_STORAGE
   streams: 1
@@ -966,7 +966,7 @@
 
 - id: 113
   name: Run GOOGLE_STORAGE file splitting test
-  run: 'sling run -r cmd/sling/tests/replications/r.52.parquet_file_splitting.yaml'
+  run: 'sling run -r tests/replications/r.52.parquet_file_splitting.yaml'
   env:
     MY_TARGET: GOOGLE_STORAGE
   streams: 1
@@ -976,7 +976,7 @@
 
 - id: 114
   name: Run local file splitting test
-  run: 'sling run -r cmd/sling/tests/replications/r.52.parquet_file_splitting.yaml'
+  run: 'sling run -r tests/replications/r.52.parquet_file_splitting.yaml'
   env:
     MY_TARGET: local
   streams: 1
@@ -986,7 +986,7 @@
 
 # Test Prometheus with no data (should not error)
 - id: 115
-  run: 'sling run -r cmd/sling/tests/replications/r.53.prometheus_incremental.yaml'
+  run: 'sling run -r tests/replications/r.53.prometheus_incremental.yaml'
   env:
     SLING_ALLOW_EMPTY: 'TRUE'
   conns:
@@ -1001,20 +1001,20 @@
 - id: 116
   name: MongoDB filter test
   run: |
-    sling run -r cmd/sling/tests/replications/r.54.mongo_filter.yaml
-    sling run -r cmd/sling/tests/replications/r.54.mongo_objectid_filter.yaml
-    sling run -r cmd/sling/tests/replications/r.54.mongo_isodate_filter.yaml
+    sling run -r tests/replications/r.54.mongo_filter.yaml
+    sling run -r tests/replications/r.54.mongo_objectid_filter.yaml
+    sling run -r tests/replications/r.54.mongo_isodate_filter.yaml
   output_contains:
     - 'inserted 0 rows'
 
 - id: 117
   name: JSON to Snowflake nested import test
-  run: 'sling run -d -r cmd/sling/tests/replications/r.55.json_snowflake_nested.yaml'
+  run: 'sling run -d -r tests/replications/r.55.json_snowflake_nested.yaml'
 
 # Test SQL Server money type to StarRocks
 - id: 118
   name: SQL Server money type to StarRocks
-  run: 'sling run -d -r cmd/sling/tests/replications/r.56.mssql_starrocks_money.yaml'
+  run: 'sling run -d -r tests/replications/r.56.mssql_starrocks_money.yaml'
   conns:
     - mssql
     - starrocks
@@ -1024,7 +1024,7 @@
 
 - id: 119
   name: Run replication test for RunState properties
-  run: 'sling run -r cmd/sling/tests/replications/r.57.run_state_test.yaml'
+  run: 'sling run -r tests/replications/r.57.run_state_test.yaml'
   streams: 2
   rows: 10
   output_contains:
@@ -1035,14 +1035,14 @@
 
 - id: 120
   name: Test PostgreSQL mixed encoding character handling
-  run: 'sling run -d -r cmd/sling/tests/replications/r.58.postgres_invalid_utf8.yaml'
+  run: 'sling run -d -r tests/replications/r.58.postgres_invalid_utf8.yaml'
   rows: 10
   output_contains:
     - 'execution succeeded'
 
 - id: 121
   name: Test MSSQL to PostgreSQL encoding handling
-  run: 'sling run -d -r cmd/sling/tests/replications/r.59.mssql_postgres_encoding.yaml'
+  run: 'sling run -d -r tests/replications/r.59.mssql_postgres_encoding.yaml'
   rows: 10
   after: [120]
   output_contains:
@@ -1050,33 +1050,33 @@
 
 - id: 122
   name: Test MSSQL to PostgreSQL collations handling
-  run: 'sling run -d -r cmd/sling/tests/replications/r.60.mssql_postgres_collations.yaml'
+  run: 'sling run -d -r tests/replications/r.60.mssql_postgres_collations.yaml'
   rows: 5
   output_contains:
     - 'execution succeeded'
 
 - id: 123
   name: Test MSSQL identity columns with incremental mode (Issue #657)
-  run: 'sling run -d -r cmd/sling/tests/replications/r.61.mssql_identity_incremental.yaml'
+  run: 'sling run -d -r tests/replications/r.61.mssql_identity_incremental.yaml'
   output_contains:
     - 'execution succeeded'
 
 # with add_new_columns=false, we should WARN instead of erroring
 - id: 124
   name: Test MSSQL to PostgreSQL with add_new_columns=false
-  run: 'sling run -d -r cmd/sling/tests/replications/r.62.mssql_postgres_add_columns_false.yaml'
+  run: 'sling run -d -r tests/replications/r.62.mssql_postgres_add_columns_false.yaml'
   output_contains:
     - source field 'age' is missing in target table
 
 # Test PostgreSQL to BigQuery with all data types using CSV and Parquet format
 - id: 125
   name: Test PostgreSQL to BigQuery with all data types
-  run: 'sling run -d -r cmd/sling/tests/replications/r.63.postgres_bigquery_all_types.yaml'
+  run: 'sling run -d -r tests/replications/r.63.postgres_bigquery_all_types.yaml'
 
 # Test SQL Server time(7) to Oracle varchar conversion (Issue #662)
 - id: 126
   name: Test MSSQL time(7) to Oracle conversion (Issue #662)
-  run: 'sling run -d -r cmd/sling/tests/replications/r.64.mssql_oracle_time.yaml'
+  run: 'sling run -d -r tests/replications/r.64.mssql_oracle_time.yaml'
   env:
     SCHEMA: ORACLE
   conns:
@@ -1092,8 +1092,8 @@
 - id: 127
   name: Test large CSV import to Postgres (100k rows)
   run: |
-    sling run -d -r cmd/sling/tests/replications/r.65.large_csv_postgres_parquet.part1.yaml
-    sling run -d -r cmd/sling/tests/replications/r.65.large_csv_postgres_parquet.part2.yaml
+    sling run -d -r tests/replications/r.65.large_csv_postgres_parquet.part1.yaml
+    sling run -d -r tests/replications/r.65.large_csv_postgres_parquet.part2.yaml
   conns:
     - postgres
   output_contains:
@@ -1104,7 +1104,7 @@
 # Test MSSQL to Databricks with uppercase table name (Issue #664)
 # - id: 128
 #   name: Test MSSQL to Databricks with uppercase table name (Issue #664)
-#   run: 'sling run -d -r cmd/sling/tests/replications/r.66.mssql_databricks_uppercase_table.yaml'
+#   run: 'sling run -d -r tests/replications/r.66.mssql_databricks_uppercase_table.yaml'
 #   output_contains:
 #     - 'execution succeeded'
 
@@ -1112,7 +1112,7 @@
 - id: 129
   name: Test JSON camelCase to PostgreSQL column casing (reproduce duplicate columns bug)
   after: [117]
-  run: 'sling run -d -r cmd/sling/tests/replications/r.67.json_postgres_column_casing.yaml'
+  run: 'sling run -d -r tests/replications/r.67.json_postgres_column_casing.yaml'
   streams: 1
   rows: 3
   output_contains:
@@ -1123,17 +1123,17 @@
 
 - id: 130
   name: Test HTTP write_to
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.07.http.yaml'
+  run: 'sling run -d -p tests/pipelines/p.07.http.yaml'
   output_contains:
     - 'successfully executed step "step-08-check" (type: check)'
 
 - id: 131
   name: Test Routine Hook
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.07.routine.yaml'
+  run: 'sling run -d -p tests/pipelines/p.07.routine.yaml'
   output_contains:
     - '=== Test 1: Simple logging routine ==='
     - 'Starting routine: test_logging'
-    - 'Parameter value: hello_from_pipeline from cmd/sling/tests/pipelines'
+    - 'Parameter value: hello_from_pipeline from tests/pipelines'
     - 'Environment variable: environment_test_value'
     - '=== Test 2: Data validation routine ==='
     - 'Validating data for table: public.test_routine_table'
@@ -1150,20 +1150,20 @@
 
 - id: 132
   name: Test hooks in defaults with wildcards
-  run: 'sling run -d -r cmd/sling/tests/replications/r.68.defaults_hooks_wildcard.yaml'
+  run: 'sling run -d -r tests/replications/r.68.defaults_hooks_wildcard.yaml'
   output_contains:
     - 'wrote 14 rows to file:///tmp/wildcard_test1_upsert'
     - 'wrote 1000 rows to file:///tmp/exact_test2.csv'
-    - 'PRE HOOK EXECUTED for stream: cmd/sling/tests/files/test2.csv'
-    - 'POST HOOK EXECUTED for stream: cmd/sling/tests/files/test2.csv'
-    - 'PRE HOOK EXECUTED for stream: cmd/sling/tests/files/test1.1.csv'
-    - 'POST HOOK EXECUTED for stream: cmd/sling/tests/files/test1.1.csv'
-    - 'PRE HOOK EXECUTED for stream: cmd/sling/tests/files/test1.2.csv'
-    - 'POST HOOK EXECUTED for stream: cmd/sling/tests/files/test1.2.csv'
+    - 'PRE HOOK EXECUTED for stream: tests/files/test2.csv'
+    - 'POST HOOK EXECUTED for stream: tests/files/test2.csv'
+    - 'PRE HOOK EXECUTED for stream: tests/files/test1.1.csv'
+    - 'POST HOOK EXECUTED for stream: tests/files/test1.1.csv'
+    - 'PRE HOOK EXECUTED for stream: tests/files/test1.2.csv'
+    - 'POST HOOK EXECUTED for stream: tests/files/test1.2.csv'
 
 - id: 133
   name: Test SSH Command Hook
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.08.ssh_command.yaml'
+  run: 'sling run -d -p tests/pipelines/p.08.ssh_command.yaml'
   output_contains:
     - '=== Test 1: Basic SSH command execution ==='
     - 'SSH hostname output:'
@@ -1185,25 +1185,25 @@
 
 - id: 134
   name: Test MSSQL to Postgres decimal precision
-  run: 'sling run -d -r cmd/sling/tests/replications/r.69.mssql_postgres_decimal.yaml'
+  run: 'sling run -d -r tests/replications/r.69.mssql_postgres_decimal.yaml'
   streams: 1
 
 - id: 135
   name: Test MSSQL to Postgres decimal cast_as (float and string)
-  run: 'sling run -d -r cmd/sling/tests/replications/r.70.mssql_postgres_decimal_cast_as.yaml'
+  run: 'sling run -d -r tests/replications/r.70.mssql_postgres_decimal_cast_as.yaml'
   streams: 2
 
 - id: 136
   name: Test nested JSON to SQLite with CLI flags
   group: sqlite
   run: |
-    bash cmd/sling/tests/replications/r.71.json_sqlite_nested.sh
+    bash tests/replications/r.71.json_sqlite_nested.sh
 
     sling run -d --src-conn LOCAL --tgt-conn SQLITE --src-stream "file:///tmp/test_nested_json/*.json" --tgt-object "main.test_nested_json_cli" --mode full-refresh --src-options '{ format: json, flatten: true }'
 
 - id: 137
   name: Test nested JSON to SQLite with replication config (pre-defined columns)
-  run: 'sling run -d -r cmd/sling/tests/replications/r.71.json_sqlite_nested.yaml'
+  run: 'sling run -d -r tests/replications/r.71.json_sqlite_nested.yaml'
   group: sqlite
 
 - id: 138
@@ -1220,13 +1220,13 @@
       CREATE TABLE testing_3 (id INT PRIMARY KEY, name VARCHAR(50));
       INSERT INTO testing_3 (id, name) VALUES (3, 'table_three');
     "
-    sling run -d -r cmd/sling/tests/replications/r.72.wildcard_disabled.yaml
+    sling run -d -r tests/replications/r.72.wildcard_disabled.yaml
   output_contains:
     - '✅ SUCCESS: Wildcard with disabled stream works correctly'
 
 - id: 139
   name: 'Test DuckDB reading Parquet with large strings from S3 (issue #668)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.73.duckdb_large_parquet.yaml'
+  run: 'sling run -d -r tests/replications/r.73.duckdb_large_parquet.yaml'
   output_contains:
     - '✓ All 100 rows with large strings loaded successfully'
     - '✓ Large string values preserved (exactly 65,330 chars)'
@@ -1234,8 +1234,8 @@
 - id: 140
   name: 'Test ClickHouse boolean to string conversion (issue #626)'
   run: |
-    TARGET=clickhouse sling run -d -r cmd/sling/tests/replications/r.74.clickhouse_bool_string.yaml
-    TARGET=clickhouse_top sling run -d -r cmd/sling/tests/replications/r.74.clickhouse_bool_string.yaml
+    TARGET=clickhouse sling run -d -r tests/replications/r.74.clickhouse_bool_string.yaml
+    TARGET=clickhouse_top sling run -d -r tests/replications/r.74.clickhouse_bool_string.yaml
   output_contains:
     - '✅ SUCCESS: Boolean values correctly converted to strings in ClickHouse'
     - '✓ clickhouse_test2.is_active has boolean type'
@@ -1243,20 +1243,20 @@
 
 - id: 141
   name: 'Test {fields} placeholder with select parameter (issue #669)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.75.fields_placeholder_select.yaml'
+  run: 'sling run -d -r tests/replications/r.75.fields_placeholder_select.yaml'
   output_contains:
     - SELECT "id", "name"
 
 - id: 142
   name: 'Test columns casting to string for DDL (issue #651)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.32.columns_cast_to_string.yaml'
+  run: 'sling run -d -r tests/replications/r.32.columns_cast_to_string.yaml'
   output_contains:
     - 'Column type for date_col: character varying'
     - casting column 'date_col' as 'string'
 
 - id: 143
   name: Test HTTP POST hooks with JSON payloads
-  run: 'sling run -p cmd/sling/tests/pipelines/p.09.http_post.yaml'
+  run: 'sling run -p tests/pipelines/p.09.http_post.yaml'
   output_contains:
     - '✓ Test 1 PASSED: Basic map payload correctly converted to JSON'
     - '✓ Test 2 PASSED: Template variables correctly substituted in map payload'
@@ -1270,16 +1270,16 @@
 - id: 144
   name: Test Directory run
   run: |
-    sling run cmd/sling/tests/replications/many/nested/p.command.yaml
-    sling run --directory cmd/sling/tests/replications/many/nested
-    sling run cmd/sling/tests/replications/many/
+    sling run tests/replications/many/nested/p.command.yaml
+    sling run --directory tests/replications/many/nested
+    sling run tests/replications/many/
   output_contains:
     - 'p.log.yaml (pipeline)'
     - 'r.local.yaml (replication)'
 
 - id: 145
   name: Test thread state sync (SLING_THREADS)
-  run: sling run -r cmd/sling/tests/replications/r.76.thread_state_sync.yaml -d
+  run: sling run -r tests/replications/r.76.thread_state_sync.yaml -d
   output_contains:
     - 'Stream 1: total_rows=5, status=success'
     - 'Stream 2: total_rows=5, status=success'
@@ -1290,7 +1290,7 @@
 # Install driver: dbc install postgresql
 - id: 146
   name: Test ADBC PostgreSQL connection
-  run: sling run -r cmd/sling/tests/replications/r.77.adbc_postgres.yaml -d
+  run: sling run -r tests/replications/r.77.adbc_postgres.yaml -d
   output_contains:
     - 'Testing ADBC PostgreSQL connection'
     - 'Read CSV data:'
@@ -1302,7 +1302,7 @@
 # Install driver: dbc install mssql
 - id: 147
   name: Test ADBC SQL Server connection
-  run: sling run -r cmd/sling/tests/replications/r.78.adbc_sqlserver.yaml -d
+  run: sling run -r tests/replications/r.78.adbc_sqlserver.yaml -d
   output_contains:
     - 'Testing ADBC SQL Server connection'
     - 'Read CSV data:'
@@ -1314,8 +1314,8 @@
 - id: 148
   name: Test ADBC write
   run: |
-    TARGET=POSTGRES_ADBC SCHEMA=public sling run -r cmd/sling/tests/replications/r.79.adbc_write.yaml -d
-    TARGET=MSSQL_ADBC SCHEMA=dbo sling run -r cmd/sling/tests/replications/r.79.adbc_write.yaml -d
+    TARGET=POSTGRES_ADBC SCHEMA=public sling run -r tests/replications/r.79.adbc_write.yaml -d
+    TARGET=MSSQL_ADBC SCHEMA=dbo sling run -r tests/replications/r.79.adbc_write.yaml -d
   output_contains:
     - 'ADBC write test completed successfully'
     - 'inserted 3 rows'
@@ -1324,16 +1324,16 @@
 - id: 149
   name: Test ADBC write large
   run: |
-    # TARGET=POSTGRES_ADBC SCHEMA=public sling run -r cmd/sling/tests/replications/r.80.adbc_write_large.yaml -d
-    TARGET=MSSQL_ADBC SCHEMA=dbo sling run -r cmd/sling/tests/replications/r.80.adbc_write_large.yaml -d
-    # TARGET=MYSQL_ADBC SCHEMA=mysql sling run -r cmd/sling/tests/replications/r.80.adbc_write_large.yaml -d
+    # TARGET=POSTGRES_ADBC SCHEMA=public sling run -r tests/replications/r.80.adbc_write_large.yaml -d
+    TARGET=MSSQL_ADBC SCHEMA=dbo sling run -r tests/replications/r.80.adbc_write_large.yaml -d
+    # TARGET=MYSQL_ADBC SCHEMA=mysql sling run -r tests/replications/r.80.adbc_write_large.yaml -d
   output_contains:
     - 'ADBC write large test completed successfully'
 
 - id: 150
   name: 'Test MSSQL boolean to string conversion'
   run: |
-    sling run --debug -r cmd/sling/tests/replications/r.81.mssql_bool_string.yaml
+    sling run --debug -r tests/replications/r.81.mssql_bool_string.yaml
   output_contains:
     - 'SUCCESS: Boolean values correctly converted to strings in MSSQL'
     - 'mssql_test2.is_active has boolean type'
@@ -1342,7 +1342,7 @@
 - id: 151
   name: 'Test boolean column_typing cast_as (integer/string)'
   run: |
-    sling run --debug -r cmd/sling/tests/replications/r.82.mssql_postgres_boolean_cast_as.yaml
+    sling run --debug -r tests/replications/r.82.mssql_postgres_boolean_cast_as.yaml
   output_contains:
     - 'SUCCESS: Boolean values correctly cast to integer in bool_test1'
     - 'SUCCESS: Boolean values correctly cast to string in bool_test2'
@@ -1351,7 +1351,7 @@
 - id: 152
   name: 'Test MSSQL BIT to MySQL integer/varchar conversion'
   run: |
-    sling run --debug -r cmd/sling/tests/replications/r.83.mssql_mysql_bool.yaml
+    sling run --debug -r tests/replications/r.83.mssql_mysql_bool.yaml
   output_contains:
     - 'SUCCESS: BIT values correctly converted to integers in bool_testing_1'
     - 'SUCCESS: BIT values correctly converted to strings in bool_testing_2'
@@ -1359,12 +1359,12 @@
 - id: 153
   name: 'Test ODBC data extraction from MSSQL_ODBC to PostgreSQL'
   run: |
-    sling run --debug -r cmd/sling/tests/replications/r.84.mssql_odbc_extraction.yaml
+    sling run --debug -r tests/replications/r.84.mssql_odbc_extraction.yaml
 
 - id: 154
   name: 'Test MSSQL BIT type casting across multiple targets via pipeline'
   run: |
-    sling run --debug -p cmd/sling/tests/pipelines/p.10.bool_cast_multi_target.yaml
+    sling run --debug -p tests/pipelines/p.10.bool_cast_multi_target.yaml
   output_contains:
     # verify order of streams
     - '[1 / 4] running stream dbo.bool_cast_source'
@@ -1384,7 +1384,7 @@
 - id: 155
   name: 'Test SLING_SYNCED_AT_COLUMN with soft delete (MSSQL to Postgres)'
   run: |
-    sling run --debug -r cmd/sling/tests/replications/r.85.mssql_postgres_synced_at.yaml
+    sling run --debug -r tests/replications/r.85.mssql_postgres_synced_at.yaml
   output_contains:
     - 'execution succeeded'
     - "SUCCESS: All 10 rows have _sling_synced_op='I' after full-refresh"
@@ -1397,7 +1397,7 @@
 
 - id: 156
   name: Test mixed-case record key references in transforms (MySQL to local parquet)
-  run: 'sling run -d -r cmd/sling/tests/replications/r.86.record_key_casing.yaml'
+  run: 'sling run -d -r tests/replications/r.86.record_key_casing.yaml'
   streams: 1
   rows: 3
   output_contains:
@@ -1407,7 +1407,7 @@
 
 - id: 157
   name: Test mixed-case record key references in transforms (MySQL to BigQuery)
-  run: 'sling run -d -r cmd/sling/tests/replications/r.87.record_key_casing_bigquery.yaml'
+  run: 'sling run -d -r tests/replications/r.87.record_key_casing_bigquery.yaml'
   after: [156]
   streams: 1
   rows: 3
@@ -1419,7 +1419,7 @@
 # # Test PostGIS (PostgreSQL) to GeoJSON as target with geometry column name "geom"
 # - id: 150
 #   name: Test PostGIS (PostgreSQL) to GeoJSON as target
-#   run: 'sling run -d -r cmd/sling/tests/replications/r.68.postgres_geom_column_definition_geojson.yaml && test -f /tmp/test_geojson_output.geojson && cat /tmp/test_geojson_output.geojson'
+#   run: 'sling run -d -r tests/replications/r.68.postgres_geom_column_definition_geojson.yaml && test -f /tmp/test_geojson_output.geojson && cat /tmp/test_geojson_output.geojson'
 #   rows: 3
 #   output_contains:
 #     - 'execution succeeded'
@@ -1430,7 +1430,7 @@
 # # Test PostGIS (PostgreSQL) to GeoJSON as target with default geometry column name "geometry"
 # - id: 151
 #   name: Test PostGIS (PostgreSQL) to GeoJSON as target
-#   run: 'sling run -d -r cmd/sling/tests/replications/r.69.postgres_geom_column_default_geojson.yaml && test -f /tmp/test_geojson_output.geojson && cat /tmp/test_geojson_output.geojson'
+#   run: 'sling run -d -r tests/replications/r.69.postgres_geom_column_default_geojson.yaml && test -f /tmp/test_geojson_output.geojson && cat /tmp/test_geojson_output.geojson'
 #   rows: 3
 #   output_contains:
 #     - 'execution succeeded'
@@ -1441,7 +1441,7 @@
 # GitHub Issue #694: table_ddl with user-defined PRIMARY KEY and WITH clause
 - id: 158
   name: 'Test custom table_ddl with PRIMARY KEY and WITH clause (MSSQL)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.88.table_ddl_with_clause.yaml'
+  run: 'sling run -d -r tests/replications/r.88.table_ddl_with_clause.yaml'
   streams: 2
   rows: 2
   output_contains:
@@ -1453,7 +1453,7 @@
 # GitHub Issue #678: definition-only mode
 - id: 159
   name: 'Test definition-only mode creates table without data (Postgres to MSSQL)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.89.definition_only_db.yaml'
+  run: 'sling run -d -r tests/replications/r.89.definition_only_db.yaml'
   streams: 1
   rows: 0
   output_contains:
@@ -1463,7 +1463,7 @@
 
 - id: 160
   name: 'Test definition-only mode creates parquet file without data'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.90.definition_only_file.yaml'
+  run: 'sling run -d -r tests/replications/r.90.definition_only_file.yaml'
   streams: 1
   rows: 0
   output_contains:
@@ -1480,7 +1480,7 @@
 
 - id: 162
   name: 'Test definition-only mode from parquet file source to database'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.91.definition_only_file_source.yaml'
+  run: 'sling run -d -r tests/replications/r.91.definition_only_file_source.yaml'
   output_contains:
     - 'execution succeeded'
     - 'SUCCESS: Table created from parquet file source with schema and 0 rows'
@@ -1488,7 +1488,7 @@
 # Test Oracle XMLTYPE column transfer to BigQuery (hang issue)
 - id: 163
   name: 'Test Oracle XMLTYPE column to BigQuery transfer (hang issue)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.92.oracle_xmltype_bigquery.yaml'
+  run: 'sling run -d -r tests/replications/r.92.oracle_xmltype_bigquery.yaml'
   streams: 1
   rows: 3
   output_contains:
@@ -1499,7 +1499,7 @@
 # Test MySQL LoadDataLocal using RegisterReaderHandler pattern
 - id: 164
   name: 'Test MySQL LoadDataLocal with native Go driver'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.93.mysql_load_data_local.yaml'
+  run: 'sling run -d -r tests/replications/r.93.mysql_load_data_local.yaml'
   streams: 1
   rows: 18
   output_contains:
@@ -1509,7 +1509,7 @@
 # Test MySQL LoadDataLocal NULL handling with checksums
 - id: 165
   name: 'Test MySQL LoadDataLocal NULL handling'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.94.mysql_load_data_local_nulls.yaml'
+  run: 'sling run -d -r tests/replications/r.94.mysql_load_data_local_nulls.yaml'
   streams: 1
   rows: 53
   output_contains:
@@ -1519,7 +1519,7 @@
 # Test column renaming via select option (comprehensive tests)
 - id: 166
   name: 'Test column renaming via select (comprehensive)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.95.select_column_rename.yaml'
+  run: 'sling run -d -r tests/replications/r.95.select_column_rename.yaml'
   streams: 6
   output_contains:
     - 'execution succeeded'
@@ -1533,7 +1533,7 @@
 # Test S3 multi-bucket access with single connection (different buckets in stream URIs and files key)
 - id: 167
   name: 'Test S3 multi-bucket access with single connection'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.96.s3_multi_bucket.yaml'
+  run: 'sling run -d -r tests/replications/r.96.s3_multi_bucket.yaml'
   streams: 3
   output_contains:
     - 'SUCCESS: S3 multi-bucket access with single connection works correctly'
@@ -1541,7 +1541,7 @@
 # Test delete_missing with transforms doesn't fail (transforms should be skipped during delete detection)
 - id: 168
   name: 'Test delete_missing with transforms (transforms skipped during delete detection)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.97.delete_missing_with_transforms.yaml'
+  run: 'sling run -d -r tests/replications/r.97.delete_missing_with_transforms.yaml'
   streams: 2
   output_contains:
     - 'execution succeeded'
@@ -1552,7 +1552,7 @@
 # Issue: When using chunking + custom SQL, {stream_table} was not expanded in temp table names
 - id: 169
   name: 'Test chunking with {stream_table} variable expansion'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.98.chunking_stream_table_var.yaml'
+  run: 'sling run -d -r tests/replications/r.98.chunking_stream_table_var.yaml'
   streams: 3
   output_contains:
     - 'execution succeeded'
@@ -1563,7 +1563,7 @@
 # Fix: Changed to ESCAPED BY '' to use RFC 4180 double-quote escaping which matches Go's csv.Writer
 - id: 170
   name: 'Test MySQL LoadDataLocal escape character handling'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.99.mysql_load_data_escape_bug.yaml'
+  run: 'sling run -d -r tests/replications/r.99.mysql_load_data_escape_bug.yaml'
   streams: 1
   rows: 25
   output_contains:
@@ -1574,7 +1574,7 @@
 # # Feature: Allow users to specify merge_strategy in target_options to control how incremental data is merged
 - id: 171
   name: 'Test merge_strategy target option'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.100.merge_strategy.yaml'
+  run: 'sling run -d -r tests/replications/r.100.merge_strategy.yaml'
   streams: 4
   output_contains:
     - 'execution succeeded'
@@ -1588,7 +1588,7 @@
 # The constraint should detect invalid rating value and abort the replication
 - id: 172
   name: 'Test constraint validation with value IN expression (abort mode)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.101.constraints_test.yaml'
+  run: 'sling run -d -r tests/replications/r.101.constraints_test.yaml'
   err: true
   output_contains:
     - 'constraint failure'
@@ -1598,7 +1598,7 @@
 # Bug fix: After 20 constraint failures, errors should still cause abortion
 - id: 173
   name: 'Test constraint validation with 21+ failures (abort mode)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.102.constraints_21plus_bug.yaml'
+  run: 'sling run -d -r tests/replications/r.102.constraints_21plus_bug.yaml'
   err: true
   output_contains:
     - 'constraint failure'
@@ -1609,7 +1609,7 @@
 # In warn mode, invalid data IS allowed through but warnings should continue
 - id: 174
   name: 'Test constraint validation with 25+ failures (warn mode)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.103.constraints_warn_21plus_bug.yaml'
+  run: 'sling run -d -r tests/replications/r.103.constraints_warn_21plus_bug.yaml'
   streams: 1
   rows: 30
   output_contains:
@@ -1621,7 +1621,7 @@
 # Allows efficient delete detection on large tables by limiting comparisons to a subset of data
 - id: 175
   name: 'Test delete_missing soft with source_where/target_where (scoped deletion)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.104.delete_missing_where.yaml'
+  run: 'sling run -d -r tests/replications/r.104.delete_missing_where.yaml'
   streams: 2
   output_contains:
     - 'execution succeeded'
@@ -1630,7 +1630,7 @@
 # Test delete_missing hard delete with source_where and target_where for scoped deletion
 - id: 176
   name: 'Test delete_missing hard with source_where/target_where (scoped deletion)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.104.delete_missing_where_hard.yaml'
+  run: 'sling run -d -r tests/replications/r.104.delete_missing_where_hard.yaml'
   streams: 2
   output_contains:
     - 'execution succeeded'
@@ -1644,7 +1644,7 @@
 # Test schema migration - MSSQL to PostgreSQL
 - id: 177
   name: 'Schema migration comprehensive (MSSQL to Postgres)'
-  run: sling run -d cmd/sling/tests/pipelines/schema_migration/p.11.sm_mssql_pg.yaml
+  run: sling run -d tests/pipelines/schema_migration/p.11.sm_mssql_pg.yaml
   streams: 5
   group: schema_migration
   output_contains:
@@ -1660,7 +1660,7 @@
 # Test schema migration - MSSQL to MySQL
 - id: 178
   name: 'Schema migration comprehensive (MSSQL to MySQL)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.12.sm_mssql_mysql.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.12.sm_mssql_mysql.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1676,7 +1676,7 @@
 # Test schema migration - MSSQL to Oracle
 - id: 179
   name: 'Schema migration comprehensive (MSSQL to Oracle)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.13.sm_mssql_oracle.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.13.sm_mssql_oracle.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1692,7 +1692,7 @@
 # Test schema migration - PostgreSQL to MSSQL (reverse direction)
 - id: 180
   name: 'Schema migration comprehensive (Postgres to MSSQL)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.14.sm_pg_mssql.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.14.sm_pg_mssql.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1708,7 +1708,7 @@
 # Test schema migration - Oracle to MSSQL
 - id: 181
   name: 'Schema migration comprehensive (Oracle to MSSQL)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.15.sm_oracle_mssql.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.15.sm_oracle_mssql.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1724,7 +1724,7 @@
 # Test schema migration - MySQL to PostgreSQL
 - id: 182
   name: 'Schema migration comprehensive (MySQL to Postgres)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.16.sm_mysql_pg.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.16.sm_mysql_pg.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1744,7 +1744,7 @@
 # Test schema migration - PostgreSQL to Snowflake
 - id: 183
   name: 'Schema migration comprehensive (Postgres to Snowflake)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.17.sm_pg_snowflake.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.17.sm_pg_snowflake.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1759,7 +1759,7 @@
 # Test schema migration - PostgreSQL to Databricks
 # - id: 184
 #   name: 'Schema migration comprehensive (Postgres to Databricks)'
-#   run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.18.sm_pg_databricks.yaml'
+#   run: 'sling run -d tests/pipelines/schema_migration/p.18.sm_pg_databricks.yaml'
 #   streams: 5
 #   output_contains:
 #     - 'FK constraints found'
@@ -1772,7 +1772,7 @@
 # Test schema migration - PostgreSQL to Redshift
 # - id: 185
 #   name: 'Schema migration comprehensive (Postgres to Redshift)'
-#   run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.19.sm_pg_redshift.yaml'
+#   run: 'sling run -d tests/pipelines/schema_migration/p.19.sm_pg_redshift.yaml'
 #   streams: 5
 #   output_contains:
 #     - 'FK constraints found'
@@ -1786,7 +1786,7 @@
 # Test schema migration - PostgreSQL to BigQuery
 - id: 186
   name: 'Schema migration comprehensive (Postgres to BigQuery)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.20.sm_pg_bigquery.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.20.sm_pg_bigquery.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1801,7 +1801,7 @@
 # Note: DuckDB doesn't support ALTER TABLE ADD FOREIGN KEY, so FK migration is not tested
 - id: 187
   name: 'Schema migration comprehensive (Postgres to DuckDB)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.21.sm_pg_duckdb.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.21.sm_pg_duckdb.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1812,7 +1812,7 @@
 # Note: ClickHouse doesn't support ALTER TABLE for table comments
 - id: 188
   name: 'Schema migration comprehensive (Postgres to ClickHouse)'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.22.sm_pg_clickhouse.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.22.sm_pg_clickhouse.yaml'
   streams: 5
   group: schema_migration
   output_contains:
@@ -1823,7 +1823,7 @@
 # Tests: Identity seed/increment only returned for identity columns
 - id: 189
   name: 'Schema migration SQL Server identity fix'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.23.sm_sqlserver_identity_fix.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.23.sm_sqlserver_identity_fix.yaml'
   streams: 1
   group: schema_migration
   output_contains:
@@ -1835,7 +1835,7 @@
 # Tests: Uses INFORMATION_SCHEMA.COLUMNS instead of COLUMN_FIELD_PATHS
 - id: 190
   name: 'Schema migration BigQuery columns fix'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.24.sm_bigquery_columns_fix.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.24.sm_bigquery_columns_fix.yaml'
   streams: 1
   group: schema_migration
   output_contains:
@@ -1847,7 +1847,7 @@
 # Tests: indexes query excludes PRIMARY key and includes uniqueness info
 - id: 191
   name: 'Schema migration MySQL indexes fix'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.25.sm_mysql_indexes_fix.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.25.sm_mysql_indexes_fix.yaml'
   streams: 1
   group: schema_migration
   output_contains:
@@ -1860,7 +1860,7 @@
 # Note: Databricks connection often has timeouts - skipped by default
 # - id: 192
 #   name: 'Schema migration Databricks basic fix'
-#   run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.26.sm_databricks_basic_fix.yaml'
+#   run: 'sling run -d tests/pipelines/schema_migration/p.26.sm_databricks_basic_fix.yaml'
 #   streams: 1
 #   output_contains:
 #     - 'Columns migrated: 4'
@@ -1872,7 +1872,7 @@
 # Note: Redshift cluster not always available - skipped by default
 # - id: 193
 #   name: 'Schema migration Redshift identity fix'
-#   run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.27.sm_redshift_identity_fix.yaml'
+#   run: 'sling run -d tests/pipelines/schema_migration/p.27.sm_redshift_identity_fix.yaml'
 #   streams: 1
 #   output_contains:
 #     - 'Identity columns found'
@@ -1883,7 +1883,7 @@
 # Tests: Index extraction using expressions column
 - id: 194
   name: 'Schema migration DuckDB indexes fix'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.28.sm_duckdb_fk_indexes_fix.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.28.sm_duckdb_fk_indexes_fix.yaml'
   streams: 1
   group: schema_migration
   output_contains:
@@ -1895,7 +1895,7 @@
 # Tests: Primary key detection from system.tables
 - id: 195
   name: 'Schema migration ClickHouse primary key fix'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.29.sm_clickhouse_pk_fix.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.29.sm_clickhouse_pk_fix.yaml'
   streams: 1
   group: schema_migration
   output_contains:
@@ -1905,7 +1905,7 @@
 
 - id: 196
   name: Test SLING_STATE with BigQuery as state database
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.11.bigquery_state.yaml'
+  run: 'sling run -d -p tests/pipelines/p.11.bigquery_state.yaml'
   output_contains:
     - 'setting incremental state'
     - 'execution succeeded'
@@ -1913,7 +1913,7 @@
 
 - id: 197
   name: Test jq source option and jq() transform function
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.12.jq.yaml'
+  run: 'sling run -d -p tests/pipelines/p.12.jq.yaml'
   output_contains:
     - 'jq replication row count =>'
     - 'jq source option line count =>'
@@ -1922,13 +1922,13 @@
 
 - id: 198
   name: Test DuckDB S3 secret with explicit credentials (issue 705)
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.13.duckdb_s3_secret.yaml'
+  run: 'sling run -d -p tests/pipelines/p.13.duckdb_s3_secret.yaml'
   output_contains:
     - 'wrote 3 rows'
 
 - id: 199
   name: Test ClickHouse backfill with 0 matching rows (issue 701)
-  run: 'sling run -d -r cmd/sling/tests/replications/r.105.clickhouse_empty_backfill.yaml'
+  run: 'sling run -d -r tests/replications/r.105.clickhouse_empty_backfill.yaml'
   streams: 1
   output_contains:
     - 'no new data found in source stream'
@@ -1937,7 +1937,7 @@
 
 # - id: 200
 #   name: Test MSSQL to AZURE_SQL merge semicolon (full-refresh + incremental)
-#   run: 'sling run -d -r cmd/sling/tests/replications/r.100.mssql_merge_semicolon.yaml'
+#   run: 'sling run -d -r tests/replications/r.100.mssql_merge_semicolon.yaml'
 #   streams: 2
 #   output_contains:
 #     - 'execution succeeded'
@@ -1949,7 +1949,7 @@
 # not ~20 chunks (1-1002 / 50) from the full table range.
 - id: 201
   name: 'Chunking with where clause uses correct range'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.106.chunk_where_clause.yaml'
+  run: 'sling run -d -r tests/replications/r.106.chunk_where_clause.yaml'
   streams: 2
   output_contains:
     - 'determined 2 chunks'
@@ -1961,37 +1961,37 @@
 # CDC merge_cdc strategy tests
 - id: 202
   name: CDC merge_cdc strategy - Snowflake target
-  run: 'sling run -d -p cmd/sling/tests/pipelines/cdc/p.32.cdc_merge_snowflake.yaml'
+  run: 'sling run -d -p tests/pipelines/cdc/p.32.cdc_merge_snowflake.yaml'
   output_contains:
     - 'CDC merge_cdc Snowflake test PASSED'
 
 - id: 203
   name: CDC merge_cdc strategy - BigQuery target
-  run: 'sling run -d -p cmd/sling/tests/pipelines/cdc/p.33.cdc_merge_bigquery.yaml'
+  run: 'sling run -d -p tests/pipelines/cdc/p.33.cdc_merge_bigquery.yaml'
   output_contains:
     - 'CDC merge_cdc BigQuery test PASSED'
 
 - id: 204
   name: CDC merge_cdc strategy - SQL Server target
-  run: 'sling run -d -p cmd/sling/tests/pipelines/cdc/p.34.cdc_merge_sqlserver.yaml'
+  run: 'sling run -d -p tests/pipelines/cdc/p.34.cdc_merge_sqlserver.yaml'
   output_contains:
     - 'CDC merge_cdc SQL Server test PASSED'
 
 - id: 205
   name: CDC merge_cdc strategy - SQLite target
-  run: 'sling run -d -p cmd/sling/tests/pipelines/cdc/p.39.cdc_merge_sqlite.yaml'
+  run: 'sling run -d -p tests/pipelines/cdc/p.39.cdc_merge_sqlite.yaml'
   output_contains:
     - 'CDC merge_cdc SQLite test PASSED'
 
 - id: 206
   name: CDC merge_cdc strategy - Postgres target
-  run: 'sling run -d -p cmd/sling/tests/pipelines/cdc/p.30.cdc_merge_postgres.yaml'
+  run: 'sling run -d -p tests/pipelines/cdc/p.30.cdc_merge_postgres.yaml'
   output_contains:
     - 'CDC merge_cdc PostgreSQL test PASSED'
 
 - id: 207
   name: CDC merge_cdc strategy - MySQL target
-  run: 'sling run -d -p cmd/sling/tests/pipelines/cdc/p.31.cdc_merge_mysql.yaml'
+  run: 'sling run -d -p tests/pipelines/cdc/p.31.cdc_merge_mysql.yaml'
   output_contains:
     - 'CDC merge_cdc MySQL test PASSED'
 
@@ -1999,7 +1999,7 @@
 # primary_key, MySQL requires AUTO_INCREMENT columns to have a KEY - Sling must synthesize one.
 - id: 208
   name: 'Schema migration MSSQL IDENTITY to MySQL AUTO_INCREMENT fix'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.30.sm_mssql_mysql_autoincrement_fix.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.30.sm_mssql_mysql_autoincrement_fix.yaml'
   streams: 1
   group: schema_migration
   output_contains:
@@ -2007,7 +2007,7 @@
 
 - id: 209
   name: 'Schema migration TEXT PK to MySQL clear error for BLOB/TEXT key'
-  run: 'sling run -d cmd/sling/tests/pipelines/schema_migration/p.31.sm_pg_mysql_text_pk_error.yaml'
+  run: 'sling run -d tests/pipelines/schema_migration/p.31.sm_pg_mysql_text_pk_error.yaml'
   err: true
   group: schema_migration
   output_contains:
@@ -2021,14 +2021,14 @@
 # With range '2024-12-01,2024-12-10' and chunk_size 1d, we expect 10 chunks, not 40.
 - id: 210
   name: 'Chunking incremental mode respects user-specified range'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.14.chunk_incremental_range_override.yaml'
+  run: 'sling run -d -p tests/pipelines/p.14.chunk_incremental_range_override.yaml'
   output_contains:
     - 'determined 9 chunks'
     - 'Chunk incremental range override test PASSED'
 
 - id: 211
   name: 'MariaDB utf8mb4 charset fix for latin1 databases'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.15.mariadb_utf8_charset.yaml'
+  run: 'sling run -d -p tests/pipelines/p.15.mariadb_utf8_charset.yaml'
   output_contains:
     - 'CHARACTER SET utf8mb4'
     # utf8mb4 source (both paths)
@@ -2049,7 +2049,7 @@
 
 - id: 212
   name: ADBC DuckDB write and read via ADBC driver
-  run: 'sling run -d -p cmd/sling/tests/pipelines/adbc/duckdb/p.40.adbc_duckdb.yaml'
+  run: 'sling run -d -p tests/pipelines/adbc/duckdb/p.40.adbc_duckdb.yaml'
   output_contains:
     - 'ADBC DuckDB test PASSED'
 
@@ -2058,7 +2058,7 @@
 # but GetRefTs() can't parse it, so all files pass the timestamp filter on re-runs.
 - id: 213
   name: 'SFTP incremental file timestamp filtering (issue 711)'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.16.sftp_incremental_file_timestamp.yaml'
+  run: 'sling run -d -p tests/pipelines/p.16.sftp_incremental_file_timestamp.yaml'
   output_contains:
     - 'file stream using file_sys_timestamp='
     - 'SFTP incremental file timestamp test result:'
@@ -2067,7 +2067,7 @@
 # Local file connection with base path (UNC path support, issue #712)
 - id: 214
   name: 'Local file connection base path resolution (issue 712)'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.17.unc_local_path.yaml'
+  run: 'sling run -d -p tests/pipelines/p.17.unc_local_path.yaml'
   output_contains:
     - 'Alice'
     - 'execution succeeded'
@@ -2075,7 +2075,7 @@
 # Test pipeline store variables in replication where: and sql: fields
 - id: 215
   name: 'Pipeline store variables in replication where/sql fields'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.18.store_in_replication.yaml'
+  run: 'sling run -d -p tests/pipelines/p.18.store_in_replication.yaml'
   output_contains:
     - 'store variables work in where: field'
     - 'store variables work in sql: field'
@@ -2084,14 +2084,14 @@
 # Test that stream-level columns merge with defaults.columns instead of replacing
 - id: 216
   name: 'Stream columns merge with defaults columns (Oracle to Postgres)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.107.columns_merge_defaults.yaml'
+  run: 'sling run -d -r tests/replications/r.107.columns_merge_defaults.yaml'
   streams: 4
   output_contains:
     - 'execution succeeded'
 
 - id: 217
   name: 'SLING_STATE with direct_insert and datetime update_key (MSSQL to ClickHouse)'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.17.direct_insert_state_datetime.yaml'
+  run: 'sling run -d -p tests/pipelines/p.17.direct_insert_state_datetime.yaml'
   output_contains:
     - 'setting incremental state'
     - 'execution succeeded'
@@ -2100,7 +2100,7 @@
 # Sling wraps custom SQL as "(...) as t" but Oracle requires "(...) t" (no AS keyword)
 - id: 218
   name: 'Oracle chunking with custom SQL (AS table alias bug)'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.108.oracle_chunk_custom_sql.yaml'
+  run: 'sling run -d -r tests/replications/r.108.oracle_chunk_custom_sql.yaml'
   streams: 2
   output_contains:
     - 'execution succeeded'
@@ -2110,7 +2110,7 @@
 # .duckdb file simultaneously, causing "Could not set lock on file" errors.
 - id: 219
   name: 'DuckDB chunking file lock (issue #717)'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.19.duckdb_chunk_lock.yaml'
+  run: 'sling run -d -p tests/pipelines/p.19.duckdb_chunk_lock.yaml'
   group: duckdb
   output_contains:
     - 'SUCCESS: DuckDB chunking with chunk_size works (issue #717)'
@@ -2119,7 +2119,7 @@
 # Tests: column_typing+bulk, column_typing+nobulk, explicit columns string(N)
 - id: 220
   name: 'Oracle column_typing and explicit columns type translation'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.20.oracle_sqlldr_column_typing.yaml'
+  run: 'sling run -d -p tests/pipelines/p.20.oracle_sqlldr_column_typing.yaml'
   output_contains:
     - 'Stream 1 (column_typing + use_bulk=true) passed'
     - 'Stream 2 (column_typing + use_bulk=false) passed'
@@ -2132,14 +2132,14 @@
 # Reproduces user report: caret-delimited file, no header, column names in config
 - id: 221
   name: 'CSV to Oracle string length auto-inference (no column_typing)'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.21.csv_oracle_string_length_inference.yaml'
+  run: 'sling run -d -p tests/pipelines/p.21.csv_oracle_string_length_inference.yaml'
   output_contains:
     - 'SUCCESS: String lengths were auto-inferred from delimited file data'
     - 'CSV to Oracle string length inference test complete'
 
 - id: 222
   name: 'DuckLake Unicode column names preserved when replicating to Postgres (issue #721)'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.22.ducklake_unicode_column_names.yaml'
+  run: 'sling run -d -p tests/pipelines/p.22.ducklake_unicode_column_names.yaml'
   output_contains:
     - 'SUCCESS: DuckLake Unicode column names preserved (issue #721)'
 
@@ -2149,7 +2149,7 @@
 # User report: Oracle -> Postgres, truncate long strings via wildcard transform
 - id: 223
   name: 'Wildcard transform type_of + length on mixed types (Oracle -> Postgres)'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.23.ternary_length_mixed_types.yaml'
+  run: 'sling run -d -p tests/pipelines/p.23.ternary_length_mixed_types.yaml'
   output_contains:
     - 'SUCCESS: Wildcard transform with type_of + length works on mixed-type columns'
     - 'Ternary length mixed types test complete'
@@ -2159,14 +2159,14 @@
 # User report: full-refresh recreates table with BOOLEAN column, losing integer values.
 - id: 224
   name: 'MySQL TINYINT vs TINYINT(1) type mapping to Snowflake'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.109.mysql_snowflake_tinyint_boolean.yaml'
+  run: 'sling run -d -r tests/replications/r.109.mysql_snowflake_tinyint_boolean.yaml'
   output_contains:
     - 'SUCCESS: MySQL TINYINT values correctly preserved in Snowflake (not collapsed to BOOLEAN)'
     - 'SUCCESS: MySQL TINYINT(1) correctly mapped to BOOLEAN in Snowflake'
 
 - id: 225
   name: 'MySQL TINYINT vs TINYINT(1) type mapping to StarRocks'
-  run: 'sling run -d -r cmd/sling/tests/replications/r.110.mysql_starrocks_tinyint_boolean.yaml'
+  run: 'sling run -d -r tests/replications/r.110.mysql_starrocks_tinyint_boolean.yaml'
   output_contains:
     - 'SUCCESS: MySQL TINYINT values correctly preserved as integers in StarRocks'
     - 'SUCCESS: MySQL TINYINT(1)/BOOLEAN correctly mapped to BOOLEAN in StarRocks'
@@ -2177,7 +2177,7 @@
 # Ref: getColumnsString() in database_oracle.go always defaults to char(400000).
 - id: 227
   name: 'Oracle sqlldr ctl respects column_typing max_length'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.25.oracle_sqlldr_char_sizing.yaml'
+  run: 'sling run -d -p tests/pipelines/p.25.oracle_sqlldr_char_sizing.yaml'
   output_contains:
     - 'SUCCESS: Oracle table columns correctly sized from column_typing'
     - 'Oracle sqlldr char sizing test complete'
@@ -2190,7 +2190,7 @@
   name: 'DuckDB Arrow IPC output for parquet reads'
   env:
     DUCKDB_USE_ARROW: 'true'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.26.duckdb_arrow_ipc_output.yaml'
+  run: 'sling run -d -p tests/pipelines/p.26.duckdb_arrow_ipc_output.yaml'
   output_contains:
     - 'SUCCESS: DuckDB Arrow IPC output produced correct row count'
     - 'DuckDB Arrow IPC output test complete'
@@ -2200,7 +2200,7 @@
 # The target should expand column types to match, avoiding truncation or precision loss.
 - id: 229
   name: 'adjust_column_type expands varchar and decimal columns'
-  run: 'sling run -d -p cmd/sling/tests/pipelines/p.27.adjust_column_type_expand.yaml'
+  run: 'sling run -d -p tests/pipelines/p.27.adjust_column_type_expand.yaml'
   output_contains:
     - 'SUCCESS: adjust_column_type correctly expanded varchar and decimal columns'
 
@@ -2209,7 +2209,7 @@
 # Relies on SLING_PROJECT_TOKEN being set (typically via ~/.sling/env.yaml).
 - id: 230
   name: 'sling project CLI (jobs/exec/files/connections)'
-  run: 'sling run -p cmd/sling/tests/pipelines/p.28.platform_cli.yaml'
+  run: 'sling run -p tests/pipelines/p.28.platform_cli.yaml'
   output_contains:
     - 'Platform CLI: all checks passed'
 
@@ -2218,13 +2218,13 @@
 # help command and the install-without-key error path in one go.
 - id: 231
   name: 'sling agent service CLI (help outputs + install error path)'
-  run: 'sling run -p cmd/sling/tests/pipelines/p.29.agent_service_cli.yaml'
+  run: 'sling run -p tests/pipelines/p.29.agent_service_cli.yaml'
   output_contains:
     - 'Agent Service: all checks passed'
 
 - id: 232
   name: 'SLING_TIMEOUT triggers on long-running pipeline query step'
-  run: 'sling run -p cmd/sling/tests/pipelines/p.30.sling_timeout.yaml'
+  run: 'sling run -p tests/pipelines/p.30.sling_timeout.yaml'
   env:
     SLING_TIMEOUT: '0.1'
   err: true
@@ -2233,7 +2233,7 @@
 
 - id: 233
   name: 'SLING_TIMEOUT triggers on long-running postgres-to-postgres replication'
-  run: 'sling run -r cmd/sling/tests/replications/r.102.sling_timeout.yaml'
+  run: 'sling run -r tests/replications/r.102.sling_timeout.yaml'
   env:
     SLING_TIMEOUT: '0.1'
   err: true
@@ -2242,17 +2242,17 @@
 
 - id: 234
   name: Run sling with zipped CSV source and custom options
-  run: 'sling run --src-stream file://cmd/sling/tests/files/test9.csv.zip --src-options ''{ delimiter: ";" }'' --stdout'
+  run: 'sling run --src-stream file://tests/files/test9.csv.zip --src-options ''{ delimiter: ";" }'' --stdout'
   output_contains:
     - 'col1,col2,col3'
 
 # PostGIS geometry replication preserves geometry type on target (issue #732).
-# Self-contained: cmd/sling/tests/pipelines/postgis/run_docker_test.sh spins up
+# Self-contained: tests/pipelines/postgis/run_docker_test.sh spins up
 # a postgis/postgis container and exports the POSTGIS connection for this run.
 - id: 235
   name: 'PostGIS geometry replication preserves geometry type (issue 732)'
   run: |
-    cd cmd/sling/tests/pipelines/postgis
+    cd tests/pipelines/postgis
     bash run_docker_test.sh
   group: postgis
   output_contains:
@@ -2264,7 +2264,7 @@
 - id: 236
   name: 'sling api queue'
   run: |
-    cd cmd/sling/tests/specs/queue_only_omdb
+    cd tests/specs/queue_only_omdb
     sling run -d pipeline.yaml 
   output_contains:
     - records pushed to queue

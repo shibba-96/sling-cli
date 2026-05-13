@@ -12,7 +12,7 @@ defaults:
 hooks:
   start:
     - type: command
-      command: bash cmd/sling/tests/replications/r.71.json_sqlite_nested.sh
+      command: bash tests/replications/r.71.json_sqlite_nested.sh
 
     - type: query
       connection: '{target.name}'

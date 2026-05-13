@@ -93,7 +93,7 @@ func TestCLI(t *testing.T) {
 	}
 
 	// Load tests from suite.cli.yaml
-	filePath := "tests/suite.cli.yaml"
+	filePath := "../../tests/suite.cli.yaml"
 	content, err := os.ReadFile(filePath)
 	if !g.AssertNoError(t, err) {
 		return

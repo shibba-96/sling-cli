@@ -23,7 +23,7 @@ steps:
       defaults:
         mode: full-refresh
       streams:
-        file://cmd/sling/tests/files/test_wide_columns.csv:
+        file://tests/files/test_wide_columns.csv:
           object: SYSTEM.TEST_TYPING_BULK
           target_options:
             use_bulk: true
@@ -65,7 +65,7 @@ steps:
       defaults:
         mode: full-refresh
       streams:
-        file://cmd/sling/tests/files/test_wide_columns.csv:
+        file://tests/files/test_wide_columns.csv:
           object: SYSTEM.TEST_TYPING_NOBULK
           target_options:
             use_bulk: false
@@ -107,7 +107,7 @@ steps:
       defaults:
         mode: full-refresh
       streams:
-        file://cmd/sling/tests/files/test_wide_columns.csv:
+        file://tests/files/test_wide_columns.csv:
           object: SYSTEM.TEST_TYPING_COLS
           columns:
             col_001: string(100)

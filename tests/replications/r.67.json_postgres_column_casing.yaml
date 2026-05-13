@@ -4,7 +4,7 @@ target: POSTGRES
 hooks:
   start:
     - type: command
-      command: bash cmd/sling/tests/replications/r.67.json_postgres_column_casing.yaml.prep.sh
+      command: bash tests/replications/r.67.json_postgres_column_casing.yaml.prep.sh
 
     - type: query
       connection: '{target.name}'
