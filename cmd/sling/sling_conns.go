@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -231,6 +232,25 @@ func processConns(c *g.CliSC) (ok bool, err error) {
 					data, err := dbConn.Query(sql, queryOpts)
 					if err != nil {
 						return ok, g.Error(err, "cannot execute query")
+					}
+
+					// Render []byte cells. Drivers (especially MySQL/clickhouse)
+					// return DECIMAL, DATE, VARCHAR, JSON etc. as []byte too —
+					// for those we decode as text. Only true binary columns
+					// (Oracle RAW/BLOB, Snowflake BINARY, etc.) get rendered
+					// as 0x<hex>, replacing the Go slice notation `[222 173 ...]`.
+					for ri, row := range data.Rows {
+						for ci, val := range row {
+							b, isBytes := val.([]byte)
+							if !isBytes {
+								continue
+							}
+							if ci < len(data.Columns) && data.Columns[ci].Type.IsBinary() {
+								data.Rows[ri][ci] = "0x" + strings.ToUpper(hex.EncodeToString(b))
+							} else {
+								data.Rows[ri][ci] = string(b)
+							}
+						}
 					}
 
 					if asJSON {

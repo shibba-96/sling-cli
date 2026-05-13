@@ -2268,3 +2268,9 @@
     sling run -d pipeline.yaml 
   output_contains:
     - records pushed to queue
+
+- id: 237
+  name: 'Oracle LOB / XML / binary types replicate to Snowflake with row-level fidelity'
+  run: 'sling run -d -p tests/pipelines/p.31.oracle_special_types.yaml'
+  output_contains:
+    - 'SUCCESS: Oracle LOB / XML / binary types replicated to Snowflake with full row-level fidelity'

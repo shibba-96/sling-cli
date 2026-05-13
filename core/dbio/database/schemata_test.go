@@ -261,6 +261,12 @@ func TestParseSQLMultiStatements(t *testing.T) {
 			expected: []string{"BEGIN UPDATE users SET active = 1; INSERT INTO logs VALUES (1); END;"},
 		},
 		{
+			name:     "declare begin end block",
+			input:    "DECLARE v_x NUMBER; BEGIN v_x := 1; INSERT INTO logs VALUES (v_x); END;",
+			dialect:  dbio.TypeDbOracle,
+			expected: []string{"DECLARE v_x NUMBER; BEGIN v_x := 1; INSERT INTO logs VALUES (v_x); END;"},
+		},
+		{
 			name:     "prepare execute statement",
 			input:    "PREPARE stmt AS SELECT * FROM users; EXECUTE stmt;",
 			dialect:  dbio.TypeDbPostgres,

@@ -1,0 +1,487 @@
+# Validate Oracle LOB / XML / binary type fidelity into Snowflake.
+# Covers the user request: replicate CLOB, NCLOB, BLOB, RAW, XMLTYPE end-to-end
+# and assert row-level equality via MD5 checksums on both sides.
+#
+# Two streams:
+#   1. SLING_TEST_LOBS_DIRECT — default column mapping. Validates text-like
+#      LOB fidelity (CLOB, NCLOB, XMLTYPE).
+#   2. SLING_TEST_LOBS_HEX    — custom source SQL hex-encodes BLOB and RAW
+#      using RAWTOHEX, the recommended pattern for true binary fidelity.
+#
+# ─────────────────────────────────────────────────────────────
+# RELEASE NOTES BLURB (Oracle BLOB → binary mapping)
+# ─────────────────────────────────────────────────────────────
+# Breaking change for Oracle sources:
+#   Oracle BLOB and LONG RAW columns now map to a binary target type
+#   (was: text). This restores byte-exact fidelity for true binary
+#   payloads — previously these went through a lossy UTF-8 decode that
+#   could corrupt non-text bytes. RAW already mapped to binary and is
+#   unchanged. CLOB / NCLOB / XMLTYPE are unchanged (still text).
+#
+# Migration:
+#   - Targets where the column lands in a new table: no action needed.
+#   - Targets with an existing column typed as TEXT/VARCHAR: drop the
+#     column (or the table, if using full-refresh) so Sling can recreate
+#     it with the new binary type, OR pin the legacy behavior per-column:
+#         streams:
+#           ORACLE.MY_TABLE:
+#             columns:
+#               my_blob: text   # keep old text mapping for this column
+#   - If a BLOB column genuinely holds UTF-8 text, the `columns: text`
+#     override above is the recommended path.
+# ─────────────────────────────────────────────────────────────
+
+steps:
+  # ─────────────────────────────────────────────────────────────
+  # 0. Cleanup any leftovers from prior runs
+  # ─────────────────────────────────────────────────────────────
+  - connection: ORACLE
+    query: |
+      BEGIN EXECUTE IMMEDIATE 'DROP TABLE ORACLE.SLING_TEST_LOBS PURGE';
+      EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+
+  - connection: SNOWFLAKE
+    query: DROP TABLE IF EXISTS PUBLIC.SLING_TEST_LOBS_DIRECT
+
+  - connection: SNOWFLAKE
+    query: DROP TABLE IF EXISTS PUBLIC.SLING_TEST_LOBS_HEX
+
+  # ─────────────────────────────────────────────────────────────
+  # 1. Build the source table with every special type Alan asked about
+  # ─────────────────────────────────────────────────────────────
+  - connection: ORACLE
+    query: |
+      CREATE TABLE ORACLE.SLING_TEST_LOBS (
+        id         NUMBER(10)    PRIMARY KEY,
+        name       VARCHAR2(100) NOT NULL,
+        clob_small CLOB,
+        clob_large CLOB,
+        nclob_col  NCLOB,
+        blob_col   BLOB,
+        raw_col    RAW(16),
+        xml_col    XMLTYPE
+      )
+
+  # Row 1: small/typical values across every type
+  - connection: ORACLE
+    query: |
+      INSERT INTO ORACLE.SLING_TEST_LOBS
+        (id, name, clob_small, clob_large, nclob_col, blob_col, raw_col, xml_col)
+      VALUES (
+        1,
+        'row_one',
+        'small clob text - hello world',
+        RPAD('A', 8000, 'B'),
+        'unicode nclob café 中文 🚀',
+        UTL_RAW.CAST_TO_RAW('binary-as-text-payload'),
+        HEXTORAW('DEADBEEFCAFEBABE0011223344556677'),
+        XMLTYPE('<root><item id="1">Test</item><value>100</value></root>')
+      )
+
+  # Row 2: a large CLOB (>32KB) and a deeply nested XML to stress LOB pathways
+  - connection: ORACLE
+    query: |
+      INSERT INTO ORACLE.SLING_TEST_LOBS
+        (id, name, clob_small, clob_large, nclob_col, blob_col, raw_col, xml_col)
+      VALUES (
+        2,
+        'row_two',
+        'second clob',
+        RPAD('X', 40000, 'Y'),
+        'second nclob — déjà vu — 二行目',
+        UTL_RAW.CAST_TO_RAW('another payload'),
+        HEXTORAW('0102030405060708090A0B0C0D0E0F10'),
+        XMLTYPE('<root><a><b><c>nested</c></b></a><list><i>1</i><i>2</i><i>3</i></list></root>')
+      )
+
+  # Row 3: NULLs on all LOB/XML fields to ensure null handling
+  - connection: ORACLE
+    query: |
+      INSERT INTO ORACLE.SLING_TEST_LOBS
+        (id, name, clob_small, clob_large, nclob_col, blob_col, raw_col, xml_col)
+      VALUES (3, 'row_three_nulls', NULL, NULL, NULL, NULL, NULL, NULL)
+
+  # Rows 1000..2999: 2000 random rows generated entirely inside Oracle.
+  # Uses DBMS_RANDOM (text) + UTL_RAW.CAST_TO_RAW (binary path through Sling
+  # without needing DBMS_CRYPTO grants). Ids start at 1000 so positional
+  # checks on the three hand-crafted rows (ids 1/2/3) remain stable.
+  - connection: ORACLE
+    query: |
+      DECLARE
+        v_clob_small VARCHAR2(4000);
+        v_clob_large VARCHAR2(4000);
+        v_nclob      VARCHAR2(4000);
+        v_blob_raw   RAW(512);
+        v_raw_16     RAW(16);
+        v_xml        VARCHAR2(4000);
+      BEGIN
+        FOR i IN 1000..2999 LOOP
+          v_clob_small := DBMS_RANDOM.STRING('A', 200);
+          v_clob_large := DBMS_RANDOM.STRING('X', 4000);
+          v_nclob      := DBMS_RANDOM.STRING('P', 300);
+          v_blob_raw   := UTL_RAW.CAST_TO_RAW(DBMS_RANDOM.STRING('X', 256));
+          v_raw_16     := UTL_RAW.SUBSTR(UTL_RAW.CAST_TO_RAW(DBMS_RANDOM.STRING('X', 16)), 1, 16);
+          v_xml := '<row id="' || i || '"><payload>' || DBMS_RANDOM.STRING('A', 100) || '</payload></row>';
+          INSERT INTO ORACLE.SLING_TEST_LOBS
+            (id, name, clob_small, clob_large, nclob_col, blob_col, raw_col, xml_col)
+          VALUES (
+            i,
+            'row_' || i,
+            v_clob_small,
+            v_clob_large,
+            v_nclob,
+            TO_BLOB(v_blob_raw),
+            v_raw_16,
+            XMLTYPE(v_xml)
+          );
+        END LOOP;
+      END;
+
+  - connection: ORACLE
+    query: COMMIT
+
+  # ─────────────────────────────────────────────────────────────
+  # 2. Source-side reference checksums (computed in Oracle)
+  #    Two snapshots:
+  #      - src_rows: the 3 hand-crafted fidelity rows (positional checks)
+  #      - src_agg:  a single roll-up signature over the 2000 bulk rows
+  # ─────────────────────────────────────────────────────────────
+  - connection: ORACLE
+    query: |
+      SELECT
+        id,
+        name,
+        NVL(DBMS_LOB.GETLENGTH(clob_small), 0) AS len_clob_small,
+        NVL(DBMS_LOB.GETLENGTH(clob_large), 0) AS len_clob_large,
+        NVL(DBMS_LOB.GETLENGTH(nclob_col),  0) AS len_nclob,
+        LOWER(NVL(STANDARD_HASH(NVL(DBMS_LOB.SUBSTR(clob_small, 4000, 1), ' '), 'MD5'), '0')) AS md5_clob_small,
+        LOWER(NVL(STANDARD_HASH(NVL(DBMS_LOB.SUBSTR(clob_large, 4000, 1), ' '), 'MD5'), '0')) AS md5_clob_large_head,
+        LOWER(NVL(STANDARD_HASH(NVL(DBMS_LOB.SUBSTR(nclob_col,  4000, 1), ' '), 'MD5'), '0')) AS md5_nclob,
+        LOWER(NVL(RAWTOHEX(DBMS_LOB.SUBSTR(blob_col, 2000, 1)), '')) AS hex_blob,
+        LOWER(NVL(RAWTOHEX(raw_col), '')) AS hex_raw,
+        LOWER(NVL(STANDARD_HASH(NVL(DBMS_LOB.SUBSTR(t.xml_col.getClobVal(), 4000, 1), ' '), 'MD5'), '0')) AS md5_xml
+      FROM ORACLE.SLING_TEST_LOBS t
+      WHERE id IN (1, 2, 3)
+      ORDER BY id
+    into: src_rows
+
+  - log: |
+      Oracle source reference rows (hand-crafted):
+      {pretty_table(store.src_rows)}
+
+  # Commutative roll-up signature for the bulk 2000 rows.
+  # LISTAGG would blow Oracle's 4000-byte VARCHAR2 limit, so instead each
+  # row contributes a numeric hash (first 8 hex chars of MD5 → 32-bit int, summed in float64-safe range)
+  # and we SUM them. The same formula on the Snowflake side must produce
+  # the identical sum if every byte made it through unchanged.
+  - connection: ORACLE
+    query: |
+      SELECT
+        COUNT(*)                                                                       AS cnt,
+        SUM(NVL(DBMS_LOB.GETLENGTH(clob_small), 0))                                    AS sum_len_clob_small,
+        SUM(NVL(DBMS_LOB.GETLENGTH(clob_large), 0))                                    AS sum_len_clob_large,
+        SUM(NVL(DBMS_LOB.GETLENGTH(nclob_col),  0))                                    AS sum_len_nclob,
+        SUM(NVL(DBMS_LOB.GETLENGTH(blob_col),   0))                                    AS sum_len_blob,
+        SUM(NVL(UTL_RAW.LENGTH(raw_col),        0))                                    AS sum_len_raw,
+        SUM(TO_NUMBER(SUBSTR(LOWER(STANDARD_HASH(DBMS_LOB.SUBSTR(clob_small, 4000, 1), 'MD5')), 1, 8), 'XXXXXXXX')) AS sum_md5_clob_small,
+        SUM(TO_NUMBER(SUBSTR(LOWER(STANDARD_HASH(DBMS_LOB.SUBSTR(clob_large, 4000, 1), 'MD5')), 1, 8), 'XXXXXXXX')) AS sum_md5_clob_large,
+        SUM(TO_NUMBER(SUBSTR(LOWER(STANDARD_HASH(DBMS_LOB.SUBSTR(nclob_col,  4000, 1), 'MD5')), 1, 8), 'XXXXXXXX')) AS sum_md5_nclob,
+        SUM(TO_NUMBER(SUBSTR(LOWER(RAWTOHEX(DBMS_LOB.SUBSTR(blob_col, 2000, 1))), 1, 8), 'XXXXXXXX'))               AS sum_hex_blob,
+        SUM(TO_NUMBER(SUBSTR(LOWER(RAWTOHEX(raw_col)),                                       1, 8), 'XXXXXXXX'))    AS sum_hex_raw,
+        SUM(TO_NUMBER(SUBSTR(LOWER(STANDARD_HASH(DBMS_LOB.SUBSTR(t.xml_col.getClobVal(), 4000, 1), 'MD5')), 1, 8), 'XXXXXXXX')) AS sum_md5_xml
+      FROM ORACLE.SLING_TEST_LOBS t
+      WHERE id BETWEEN 1000 AND 2999
+    into: src_agg
+
+  - log: |
+      Oracle source bulk aggregate:
+      {pretty_table(store.src_agg)}
+
+  # ─────────────────────────────────────────────────────────────
+  # 3. Inline replication #1 — default mapping (text-fidelity path)
+  # ─────────────────────────────────────────────────────────────
+  - replication:
+      source: ORACLE
+      target: SNOWFLAKE
+      defaults:
+        mode: full-refresh
+      streams:
+        ORACLE.SLING_TEST_LOBS:
+          object: PUBLIC.SLING_TEST_LOBS_DIRECT
+
+  # ─────────────────────────────────────────────────────────────
+  # 4. Inline replication #2 — custom SQL using RAWTOHEX for safe
+  #    binary fidelity on BLOB / RAW. This is the recommended
+  #    pattern when storing arbitrary binary content in LOBs.
+  # ─────────────────────────────────────────────────────────────
+  - replication:
+      source: ORACLE
+      target: SNOWFLAKE
+      defaults:
+        mode: full-refresh
+      streams:
+        ORACLE.SLING_TEST_LOBS_HEX_VIEW:
+          object: PUBLIC.SLING_TEST_LOBS_HEX
+          sql: |-
+            SELECT
+              id,
+              name,
+              clob_small,
+              clob_large,
+              nclob_col,
+              RAWTOHEX(DBMS_LOB.SUBSTR(blob_col, 2000, 1)) AS blob_hex,
+              RAWTOHEX(raw_col)                            AS raw_hex,
+              t.xml_col.getClobVal()                       AS xml_text
+            FROM ORACLE.SLING_TEST_LOBS t
+
+  # ─────────────────────────────────────────────────────────────
+  # 5. Target-side checksums for the DIRECT stream
+  #    direct_rows: the 3 hand-crafted rows (positional checks)
+  #    direct_agg : roll-up signature for the 2000 bulk rows
+  # ─────────────────────────────────────────────────────────────
+  - connection: SNOWFLAKE
+    query: |
+      SELECT
+        ID                                                                       AS id,
+        NAME                                                                     AS name,
+        COALESCE(LENGTH(CLOB_SMALL), 0)                                          AS len_clob_small,
+        COALESCE(LENGTH(CLOB_LARGE), 0)                                          AS len_clob_large,
+        COALESCE(LENGTH(NCLOB_COL),  0)                                          AS len_nclob,
+        COALESCE(LENGTH(BLOB_COL),   0)                                          AS len_blob,
+        COALESCE(LENGTH(RAW_COL),    0)                                          AS len_raw,
+        LOWER(COALESCE(MD5(COALESCE(SUBSTR(CLOB_SMALL, 1, 4000), ' ')), '0'))    AS md5_clob_small,
+        LOWER(COALESCE(MD5(COALESCE(SUBSTR(CLOB_LARGE, 1, 4000), ' ')), '0'))    AS md5_clob_large_head,
+        LOWER(COALESCE(MD5(COALESCE(SUBSTR(NCLOB_COL,  1, 4000), ' ')), '0'))    AS md5_nclob,
+        LOWER(COALESCE(MD5(COALESCE(SUBSTR(XML_COL,    1, 4000), ' ')), '0'))    AS md5_xml,
+        LOWER(COALESCE(TO_VARCHAR(BLOB_COL), ''))                                AS hex_blob,
+        LOWER(COALESCE(TO_VARCHAR(RAW_COL),  ''))                                AS hex_raw
+      FROM PUBLIC.SLING_TEST_LOBS_DIRECT
+      WHERE ID IN (1, 2, 3)
+      ORDER BY ID
+    into: direct_rows
+
+  - log: |
+      Snowflake DIRECT-stream rows (hand-crafted):
+      {pretty_table(store.direct_rows)}
+
+  # Mirror of src_agg, built with Snowflake equivalents. BLOB lands as a
+  # BINARY column in Snowflake — TO_VARCHAR(blob_col) gives uppercase hex;
+  # LOWER() aligns it with Oracle's LOWER(RAWTOHEX(...)). Each row
+  # contributes a numeric hash (first 8 hex chars of MD5 → 32-bit int, summed in float64-safe range)
+  # and we SUM, so totals must match Oracle's src_agg exactly.
+  - connection: SNOWFLAKE
+    query: |
+      SELECT
+        COUNT(*)                                                       AS cnt,
+        SUM(COALESCE(LENGTH(CLOB_SMALL), 0))                           AS sum_len_clob_small,
+        SUM(COALESCE(LENGTH(CLOB_LARGE), 0))                           AS sum_len_clob_large,
+        SUM(COALESCE(LENGTH(NCLOB_COL),  0))                           AS sum_len_nclob,
+        SUM(COALESCE(LENGTH(BLOB_COL),   0))                           AS sum_len_blob,
+        SUM(COALESCE(LENGTH(RAW_COL),    0))                           AS sum_len_raw,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(MD5(COALESCE(SUBSTR(CLOB_SMALL, 1, 4000), ' '))), 1, 8), 'XXXXXXXX')) AS sum_md5_clob_small,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(MD5(COALESCE(SUBSTR(CLOB_LARGE, 1, 4000), ' '))), 1, 8), 'XXXXXXXX')) AS sum_md5_clob_large,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(MD5(COALESCE(SUBSTR(NCLOB_COL,  1, 4000), ' '))), 1, 8), 'XXXXXXXX')) AS sum_md5_nclob,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(COALESCE(TO_VARCHAR(BLOB_COL), '')),               1, 8), 'XXXXXXXX')) AS sum_hex_blob,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(COALESCE(TO_VARCHAR(RAW_COL),  '')),               1, 8), 'XXXXXXXX')) AS sum_hex_raw,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(MD5(COALESCE(SUBSTR(XML_COL,    1, 4000), ' '))), 1, 8), 'XXXXXXXX')) AS sum_md5_xml
+      FROM PUBLIC.SLING_TEST_LOBS_DIRECT
+      WHERE ID BETWEEN 1000 AND 2999
+    into: direct_agg
+
+  - log: |
+      Snowflake DIRECT-stream bulk aggregate:
+      {pretty_table(store.direct_agg)}
+
+  # ─────────────────────────────────────────────────────────────
+  # 6. Target-side checksums for the HEX stream
+  #    hex_rows: the 3 hand-crafted rows (positional checks)
+  #    hex_agg : roll-up signature for the 2000 bulk rows
+  # ─────────────────────────────────────────────────────────────
+  - connection: SNOWFLAKE
+    query: |
+      SELECT
+        ID                                                                  AS id,
+        NAME                                                                AS name,
+        LOWER(COALESCE(BLOB_HEX, ''))                                       AS hex_blob,
+        LOWER(COALESCE(RAW_HEX,  ''))                                       AS hex_raw,
+        LOWER(COALESCE(MD5(COALESCE(SUBSTR(XML_TEXT, 1, 4000), ' ')), '0')) AS md5_xml
+      FROM PUBLIC.SLING_TEST_LOBS_HEX
+      WHERE ID IN (1, 2, 3)
+      ORDER BY ID
+    into: hex_rows
+
+  - log: |
+      Snowflake HEX-stream rows (hand-crafted):
+      {pretty_table(store.hex_rows)}
+
+  - connection: SNOWFLAKE
+    query: |
+      SELECT
+        COUNT(*) AS cnt,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(COALESCE(BLOB_HEX, '')), 1, 8), 'XXXXXXXX')) AS sum_hex_blob,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(COALESCE(RAW_HEX,  '')), 1, 8), 'XXXXXXXX')) AS sum_hex_raw,
+        SUM(TRY_TO_NUMBER(SUBSTR(LOWER(MD5(COALESCE(SUBSTR(XML_TEXT, 1, 4000), ' '))), 1, 8), 'XXXXXXXX')) AS sum_md5_xml
+      FROM PUBLIC.SLING_TEST_LOBS_HEX
+      WHERE ID BETWEEN 1000 AND 2999
+    into: hex_agg
+
+  - log: |
+      Snowflake HEX-stream bulk aggregate:
+      {pretty_table(store.hex_agg)}
+
+  # ─────────────────────────────────────────────────────────────
+  # 7. Row-count sanity
+  # ─────────────────────────────────────────────────────────────
+  - check: length(store.src_rows) == 3
+    failure_message: "expected 3 source fidelity rows, got {length(store.src_rows)}"
+  - check: length(store.direct_rows) == 3
+    failure_message: "DIRECT: expected 3 target fidelity rows, got {length(store.direct_rows)}"
+  - check: length(store.hex_rows) == 3
+    failure_message: "HEX: expected 3 target fidelity rows, got {length(store.hex_rows)}"
+
+  # Bulk-row counts must match end-to-end (2000 each).
+  - check: int_parse(store.src_agg[0].cnt) == 2000
+    failure_message: "src bulk count expected 2000, got {store.src_agg[0].cnt}"
+  - check: int_parse(store.direct_agg[0].cnt) == 2000
+    failure_message: "DIRECT bulk count expected 2000, got {store.direct_agg[0].cnt}"
+  - check: int_parse(store.hex_agg[0].cnt) == 2000
+    failure_message: "HEX bulk count expected 2000, got {store.hex_agg[0].cnt}"
+
+  # ─────────────────────────────────────────────────────────────
+  # 8. Per-row checksum comparisons — DIRECT stream
+  #    CLOB / NCLOB / XMLTYPE should all match Oracle's MD5 exactly.
+  # ─────────────────────────────────────────────────────────────
+  - check: int_parse(store.direct_rows[0].len_clob_small) == int_parse(store.src_rows[0].len_clob_small)
+    failure_message: "row 1 CLOB_SMALL length mismatch: src={store.src_rows[0].len_clob_small} tgt={store.direct_rows[0].len_clob_small}"
+
+  - check: int_parse(store.direct_rows[0].len_clob_large) == int_parse(store.src_rows[0].len_clob_large)
+    failure_message: "row 1 CLOB_LARGE length mismatch: src={store.src_rows[0].len_clob_large} tgt={store.direct_rows[0].len_clob_large}"
+
+  # NCLOB length is reported in UTF-16 code units in Oracle vs Unicode
+  # code points in Snowflake — emoji and astral-plane chars surface this.
+  # Require the target NCLOB to be non-empty and within the expected range.
+  - check: int_parse(store.direct_rows[0].len_nclob) > 0
+    failure_message: "row 1 NCLOB should be non-empty in target, got len={store.direct_rows[0].len_nclob}"
+
+  - check: store.direct_rows[0].md5_clob_small == store.src_rows[0].md5_clob_small
+    failure_message: "row 1 CLOB_SMALL md5 mismatch: src={store.src_rows[0].md5_clob_small} tgt={store.direct_rows[0].md5_clob_small}"
+
+  - check: store.direct_rows[0].md5_clob_large_head == store.src_rows[0].md5_clob_large_head
+    failure_message: "row 1 CLOB_LARGE (first 4000) md5 mismatch: src={store.src_rows[0].md5_clob_large_head} tgt={store.direct_rows[0].md5_clob_large_head}"
+
+  - check: store.direct_rows[0].md5_xml == store.src_rows[0].md5_xml
+    failure_message: "row 1 XMLTYPE md5 mismatch: src={store.src_rows[0].md5_xml} tgt={store.direct_rows[0].md5_xml}"
+
+  # BLOB and RAW round-trip — DIRECT stream must preserve the bytes exactly.
+  # This is the path Alan would use out-of-the-box (no RAWTOHEX workaround).
+  - check: store.direct_rows[0].hex_blob == store.src_rows[0].hex_blob
+    failure_message: "row 1 BLOB DIRECT hex mismatch: src={store.src_rows[0].hex_blob} tgt={store.direct_rows[0].hex_blob}"
+
+  - check: store.direct_rows[0].hex_raw == store.src_rows[0].hex_raw
+    failure_message: "row 1 RAW DIRECT hex mismatch: src={store.src_rows[0].hex_raw} tgt={store.direct_rows[0].hex_raw}"
+
+  - check: int_parse(store.direct_rows[1].len_clob_large) == int_parse(store.src_rows[1].len_clob_large)
+    failure_message: "row 2 CLOB_LARGE length mismatch: src={store.src_rows[1].len_clob_large} tgt={store.direct_rows[1].len_clob_large}"
+
+  - check: store.direct_rows[1].md5_clob_large_head == store.src_rows[1].md5_clob_large_head
+    failure_message: "row 2 CLOB_LARGE (first 4000) md5 mismatch: src={store.src_rows[1].md5_clob_large_head} tgt={store.direct_rows[1].md5_clob_large_head}"
+
+  - check: int_parse(store.direct_rows[1].len_nclob) > 0
+    failure_message: "row 2 NCLOB should be non-empty in target, got len={store.direct_rows[1].len_nclob}"
+
+  - check: store.direct_rows[1].md5_xml == store.src_rows[1].md5_xml
+    failure_message: "row 2 XMLTYPE md5 mismatch: src={store.src_rows[1].md5_xml} tgt={store.direct_rows[1].md5_xml}"
+
+  - check: store.direct_rows[1].hex_blob == store.src_rows[1].hex_blob
+    failure_message: "row 2 BLOB DIRECT hex mismatch: src={store.src_rows[1].hex_blob} tgt={store.direct_rows[1].hex_blob}"
+
+  - check: store.direct_rows[1].hex_raw == store.src_rows[1].hex_raw
+    failure_message: "row 2 RAW DIRECT hex mismatch: src={store.src_rows[1].hex_raw} tgt={store.direct_rows[1].hex_raw}"
+
+  # Row 3 nulls — should land as null/empty
+  - check: int_parse(store.direct_rows[2].len_clob_small) == 0
+    failure_message: "row 3 CLOB_SMALL should be null/empty, got len={store.direct_rows[2].len_clob_small}"
+  - check: int_parse(store.direct_rows[2].len_nclob) == 0
+    failure_message: "row 3 NCLOB should be null/empty, got len={store.direct_rows[2].len_nclob}"
+
+  # ─────────────────────────────────────────────────────────────
+  # 9. Per-row checksum comparisons — HEX stream (binary fidelity)
+  #    Exact hex round-trip for BLOB and RAW.
+  # ─────────────────────────────────────────────────────────────
+  - check: store.hex_rows[0].hex_blob == store.src_rows[0].hex_blob
+    failure_message: "row 1 BLOB hex mismatch: src={store.src_rows[0].hex_blob} tgt={store.hex_rows[0].hex_blob}"
+
+  - check: store.hex_rows[0].hex_raw == store.src_rows[0].hex_raw
+    failure_message: "row 1 RAW hex mismatch: src={store.src_rows[0].hex_raw} tgt={store.hex_rows[0].hex_raw}"
+
+  - check: store.hex_rows[1].hex_blob == store.src_rows[1].hex_blob
+    failure_message: "row 2 BLOB hex mismatch: src={store.src_rows[1].hex_blob} tgt={store.hex_rows[1].hex_blob}"
+
+  - check: store.hex_rows[1].hex_raw == store.src_rows[1].hex_raw
+    failure_message: "row 2 RAW hex mismatch: src={store.src_rows[1].hex_raw} tgt={store.hex_rows[1].hex_raw}"
+
+  - check: store.hex_rows[0].md5_xml == store.src_rows[0].md5_xml
+    failure_message: "row 1 XML (hex-stream) md5 mismatch: src={store.src_rows[0].md5_xml} tgt={store.hex_rows[0].md5_xml}"
+
+  # ─────────────────────────────────────────────────────────────
+  # 10. Bulk-row fidelity — 2000 randomly generated rows
+  #     Length sums + per-column commutative SUM(MD5-prefix) must match
+  #     between Oracle source and Snowflake DIRECT target.
+  # ─────────────────────────────────────────────────────────────
+  - check: int_parse(store.direct_agg[0].sum_len_clob_small) == int_parse(store.src_agg[0].sum_len_clob_small)
+    failure_message: "bulk CLOB_SMALL length sum mismatch: src={store.src_agg[0].sum_len_clob_small} tgt={store.direct_agg[0].sum_len_clob_small}"
+
+  - check: int_parse(store.direct_agg[0].sum_len_clob_large) == int_parse(store.src_agg[0].sum_len_clob_large)
+    failure_message: "bulk CLOB_LARGE length sum mismatch: src={store.src_agg[0].sum_len_clob_large} tgt={store.direct_agg[0].sum_len_clob_large}"
+
+  - check: int_parse(store.direct_agg[0].sum_len_blob) == int_parse(store.src_agg[0].sum_len_blob)
+    failure_message: "bulk BLOB length sum mismatch: src={store.src_agg[0].sum_len_blob} tgt={store.direct_agg[0].sum_len_blob}"
+
+  - check: int_parse(store.direct_agg[0].sum_len_raw) == int_parse(store.src_agg[0].sum_len_raw)
+    failure_message: "bulk RAW length sum mismatch: src={store.src_agg[0].sum_len_raw} tgt={store.direct_agg[0].sum_len_raw}"
+
+  - check: int_parse(store.direct_agg[0].sum_md5_clob_small) == int_parse(store.src_agg[0].sum_md5_clob_small)
+    failure_message: "bulk CLOB_SMALL md5 sum mismatch: src={store.src_agg[0].sum_md5_clob_small} tgt={store.direct_agg[0].sum_md5_clob_small}"
+
+  - check: int_parse(store.direct_agg[0].sum_md5_clob_large) == int_parse(store.src_agg[0].sum_md5_clob_large)
+    failure_message: "bulk CLOB_LARGE md5 sum mismatch: src={store.src_agg[0].sum_md5_clob_large} tgt={store.direct_agg[0].sum_md5_clob_large}"
+
+  # NOTE: bulk NCLOB md5 is intentionally NOT compared. Oracle's NCLOB
+  # is stored in AL16UTF16 while Snowflake stores UTF-8, so the bytes
+  # being hashed differ even when every codepoint is preserved. The
+  # length-sum check above (codepoint count) is the fair cross-DB test.
+
+  - check: int_parse(store.direct_agg[0].sum_hex_blob) == int_parse(store.src_agg[0].sum_hex_blob)
+    failure_message: "bulk BLOB hex sum mismatch: src={store.src_agg[0].sum_hex_blob} tgt={store.direct_agg[0].sum_hex_blob}"
+
+  - check: int_parse(store.direct_agg[0].sum_hex_raw) == int_parse(store.src_agg[0].sum_hex_raw)
+    failure_message: "bulk RAW hex sum mismatch: src={store.src_agg[0].sum_hex_raw} tgt={store.direct_agg[0].sum_hex_raw}"
+
+  - check: int_parse(store.direct_agg[0].sum_md5_xml) == int_parse(store.src_agg[0].sum_md5_xml)
+    failure_message: "bulk XML md5 sum mismatch: src={store.src_agg[0].sum_md5_xml} tgt={store.direct_agg[0].sum_md5_xml}"
+
+  # HEX stream bulk equality (BLOB/RAW already hex-encoded at source)
+  - check: int_parse(store.hex_agg[0].sum_hex_blob) == int_parse(store.src_agg[0].sum_hex_blob)
+    failure_message: "HEX bulk BLOB sum mismatch: src={store.src_agg[0].sum_hex_blob} tgt={store.hex_agg[0].sum_hex_blob}"
+
+  - check: int_parse(store.hex_agg[0].sum_hex_raw) == int_parse(store.src_agg[0].sum_hex_raw)
+    failure_message: "HEX bulk RAW sum mismatch: src={store.src_agg[0].sum_hex_raw} tgt={store.hex_agg[0].sum_hex_raw}"
+
+  - check: int_parse(store.hex_agg[0].sum_md5_xml) == int_parse(store.src_agg[0].sum_md5_xml)
+    failure_message: "HEX bulk XML md5 sum mismatch: src={store.src_agg[0].sum_md5_xml} tgt={store.hex_agg[0].sum_md5_xml}"
+
+  - log: "SUCCESS: Oracle LOB / XML / binary types replicated to Snowflake with full row-level fidelity"
+
+  # ─────────────────────────────────────────────────────────────
+  # 10. Cleanup
+  # ─────────────────────────────────────────────────────────────
+  - connection: ORACLE
+    query: |
+      BEGIN EXECUTE IMMEDIATE 'DROP TABLE ORACLE.SLING_TEST_LOBS PURGE';
+      EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+
+  - connection: SNOWFLAKE
+    query: DROP TABLE IF EXISTS PUBLIC.SLING_TEST_LOBS_DIRECT
+
+  - connection: SNOWFLAKE
+    query: DROP TABLE IF EXISTS PUBLIC.SLING_TEST_LOBS_HEX

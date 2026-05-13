@@ -467,7 +467,7 @@ variable:
 
 native_type_map:
   bfile: binary
-  blob: text
+  blob: binary
   char: string
   clob: text
   date: datetime
@@ -475,6 +475,7 @@ native_type_map:
   float: float
   json: json
   long: string
+  longraw: binary
   longvarchar: string
   mlslabel: string
   nchar: string

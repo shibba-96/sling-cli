@@ -1290,6 +1290,9 @@ func ParseSQLMultiStatements(sql string, Dialect ...dbio.Type) (sqls []string) {
 	sqlLower := strings.TrimRight(strings.TrimSpace(strings.ToLower(sql)), ";")
 	if strings.HasPrefix(sqlLower, "begin") && strings.HasSuffix(sqlLower, "end") {
 		return []string{sql}
+	} else if strings.HasPrefix(sqlLower, "declare") && strings.HasSuffix(sqlLower, "end") {
+		// Oracle PL/SQL anonymous block with locals: DECLARE ... BEGIN ... END;
+		return []string{sql}
 	} else if strings.Contains(sqlLower, "prepare ") && strings.Contains(sqlLower, "execute ") {
 		return []string{sql}
 	} else if strings.Contains(sqlLower, "create procedure") || strings.Contains(sqlLower, "create function") {
