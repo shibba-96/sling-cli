@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"io"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/flarco/g"
 	"github.com/gobwas/glob"
 	"github.com/samber/lo"
+	"github.com/slingdata-io/sling-cli/core"
 	"github.com/slingdata-io/sling-cli/core/dbio/api"
 	"github.com/slingdata-io/sling-cli/core/dbio/connection"
 	"github.com/slingdata-io/sling-cli/core/dbio/database"
@@ -614,6 +616,8 @@ func (rd *ReplicationConfig) ExecuteReplicationHook(stage HookStage) (err error)
 			te.AppendOutput(ll)
 		}
 	}
+
+	g.Debug("Sling version: %s (%s %s)", core.Version, runtime.GOOS, runtime.GOARCH)
 
 	switch stage {
 	case HookStageStart:
