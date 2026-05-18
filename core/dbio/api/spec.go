@@ -925,8 +925,8 @@ func (iter *Iteration) DetermineStateRenderOrder() (order []string, err error) {
 
 // Iterate is for configuring looping values for requests
 type Iterate struct {
-	Over        any    `yaml:"over" json:"iterate,omitempty"` // expression
-	Into        string `yaml:"into" json:"into,omitempty"`    // state variable
+	Over        any    `yaml:"over" json:"over,omitempty"` // expression
+	Into        string `yaml:"into" json:"into,omitempty"` // state variable
 	Concurrency int    `yaml:"concurrency" json:"concurrency,omitempty"`
 	iterations  chan *Iteration
 }

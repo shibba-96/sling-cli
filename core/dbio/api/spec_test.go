@@ -1973,8 +1973,9 @@ endpoints:
 		assert.Equal(t, RuleTypeBreak, ep.Response.Rules[0].Action)                        // prepend
 		assert.Equal(t, RuleTypeRetry, ep.Response.Rules[1].Action)                        // default
 		assert.Equal(t, RuleTypeContinue, ep.Response.Rules[2].Action)                     // append
-		assert.Equal(t, RuleTypeRetry, ep.Response.Rules[len(ep.Response.Rules)-2].Action) // hardcoded retry
-		assert.Equal(t, RuleTypeFail, ep.Response.Rules[len(ep.Response.Rules)-1].Action)  // hardcoded fail
+		assert.Equal(t, RuleTypeRetry, ep.Response.Rules[len(ep.Response.Rules)-3].Action) // hardcoded retry
+		assert.Equal(t, RuleTypeFail, ep.Response.Rules[len(ep.Response.Rules)-2].Action)  // hardcoded JSON-RPC fail
+		assert.Equal(t, RuleTypeFail, ep.Response.Rules[len(ep.Response.Rules)-1].Action)  // hardcoded status fail
 	})
 
 	t.Run("combine explicit rules with +rules and rules+", func(t *testing.T) {
