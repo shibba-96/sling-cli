@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -861,13 +862,9 @@ func (conn *BigQueryConn) LoadFromReader(table Table, reader io.Reader, dsColumn
 	if err != nil {
 		return g.Error(err, "Error in loader.Execute")
 	}
-	status, err := job.Wait(conn.Context().Ctx)
-	if err != nil {
-		return g.Error(err, "Error in task.Wait")
-	}
 
-	if err := status.Err(); err != nil {
-		return g.Error(err, "Error in Import Task")
+	if err := waitForJob(conn.Context().Ctx, job, "Import task from local reader"); err != nil {
+		return err
 	}
 
 	return nil
@@ -919,13 +916,9 @@ func (conn *BigQueryConn) CopyFromGCS(gcsURI string, table Table, dsColumns []io
 	if err != nil {
 		return g.Error(err, "Error in loader.Execute")
 	}
-	status, err := job.Wait(conn.Context().Ctx)
-	if err != nil {
-		return g.Error(err, "Error in task.Wait")
-	}
 
-	if err := status.Err(); err != nil {
-		return g.Error(err, "Error in Import Task")
+	if err := waitForJob(conn.Context().Ctx, job, "Import task from GCS"); err != nil {
+		return err
 	}
 
 	return nil
@@ -1116,16 +1109,12 @@ func (conn *BigQueryConn) CopyToGCS(table Table, gcsURI string, format dbio.File
 	if err != nil {
 		return g.Error(err, "Error in extractor.Execute")
 	}
-	status, err := job.Wait(conn.Context().Ctx)
-	if err != nil {
-		return g.Error(err, "Error in task.Wait")
-	}
-	if err := status.Err(); err != nil {
+	if err := waitForJob(conn.Context().Ctx, job, "Export Task"); err != nil {
 		if strings.Contains(err.Error(), "it is currently a VIEW") || strings.Contains(err.Error(), "it currently has type VIEW") {
 			table.IsView = true
 			return conn.CopyToGCS(table, gcsURI, format)
 		}
-		return g.Error(err, "Error in Export Task")
+		return err
 	}
 
 	g.Info("wrote to %s", gcsURI)
@@ -1385,6 +1374,40 @@ func (conn *BigQueryConn) GetSchemata(level SchemataLevel, schemaName string, ta
 	ctx.Wg.Read.Wait()
 
 	return schemata, nil
+}
+
+// waitForJob waits for a BigQuery job to complete and returns its terminal error (if any).
+//
+// When the parent context is canceled (e.g. a sibling load goroutine errored and
+// triggered a cancel-cascade), bigquery.Job.Wait discards the JobStatus it had and
+// returns only "context canceled", obscuring the real BigQuery API error
+// (Location/Message/Reason). To preserve the true cause, on a context error we
+// re-fetch the job status with a detached context so the genuine error surfaces.
+func waitForJob(ctx context.Context, job *bigquery.Job, taskName string) error {
+	status, err := job.Wait(ctx)
+	if err != nil {
+		// If Wait failed due to context cancellation/deadline, the job still
+		// exists server-side. Re-fetch its status with a fresh context to get
+		// the real error rather than the masking "context canceled".
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			detachedCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if s, serr := job.Status(detachedCtx); serr == nil {
+				if jobErr := s.Err(); jobErr != nil {
+					return g.Error(jobErr, "Error in %s (job %s)", taskName, job.ID())
+				}
+				// Job actually succeeded; the only failure was the canceled wait.
+				return g.Error(err, "Error in %s (wait canceled, job %s succeeded)", taskName, job.ID())
+			}
+		}
+		return g.Error(err, "Error in %s", taskName)
+	}
+
+	if jobErr := status.Err(); jobErr != nil {
+		return g.Error(jobErr, "Error in %s", taskName)
+	}
+
+	return nil
 }
 
 func getBytesProcessed(it *bigquery.RowIterator) (bytesProcessed int64, childJobs int64) {
