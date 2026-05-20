@@ -37,6 +37,18 @@ import (
 var testMux sync.Mutex
 var allTestContext = g.NewContext(context.Background())
 
+// repoRootDir returns the absolute path of the repo root (parent of cmd/sling).
+func repoRootDir() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		// fallback: cwd-relative
+		wd, _ := os.Getwd()
+		return filepath.Clean(filepath.Join(wd, "..", ".."))
+	}
+	// file is .../sling-cli/cmd/sling/sling_test.go → repo root is two dirs up
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
 var conns = connection.GetLocalConns()
 
 // Track test failures
@@ -328,12 +340,8 @@ func testSuite(t *testing.T, connType dbio.Type, testSelect ...string) {
 		return
 	}
 
-	// chdir to repo root so `file://tests/...` paths inside the loaded
-	// suite templates resolve from the same anchor the templates assume.
-	origWd, err := os.Getwd()
-	g.LogFatal(err)
-	g.LogFatal(os.Chdir("../.."))
-	defer os.Chdir(origWd)
+	// chdir to repo root so `file://tests/...` paths
+	g.LogFatal(os.Chdir(repoRootDir()))
 
 	templateFilePath := "tests/suite.db.template.yaml"
 	if connType.IsFile() {
