@@ -777,3 +777,84 @@
       quantity: "3"
   expected_state:
     resource: orders
+
+# id: 16 - Reproduces an API returning boolean `false` for unset fields.
+# Without a processor, `false` leaks through as the string "false",
+# breaking date/numeric casting downstream.
+- id: 16
+  name: boolean_false_leaks_through_without_processor
+  mock_response:
+    result:
+      - id: 1
+        name: Item One
+        date: "2026-05-08"
+        amount: 145.2
+      - id: 2
+        name: false
+        date: false
+        amount: false
+  spec:
+    name: test_api
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        name: test_endpoint
+        response:
+          records:
+            jmespath: "result[*]"
+            primary_key: ['id']
+  expected_records:
+    - id: "1"
+      name: Item One
+      date: "2026-05-08"
+      amount: "145.2"
+    - id: "2"
+      name: "false"
+      date: "false"
+      amount: "false"
+  expected_state: {}
+
+# id: 17 - Spec-level fix: record-level processors use null_if() to coerce a
+# boolean `false` sentinel to null per field. Works for any column type (date,
+# string, numeric) since null_if compares the raw value to the given sentinel.
+- id: 17
+  name: boolean_false_to_null_via_record_processor
+  mock_response:
+    result:
+      - id: 1
+        name: Item One
+        date: "2026-05-08"
+        amount: 145.2
+      - id: 2
+        name: false
+        date: false
+        amount: false
+  spec:
+    name: test_api
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        name: test_endpoint
+        response:
+          processors:
+            - expression: 'null_if(record.name, false)'
+              output: record.name
+            - expression: 'null_if(record.date, false)'
+              output: record.date
+            - expression: 'null_if(record.amount, false)'
+              output: record.amount
+          records:
+            jmespath: "result[*]"
+            primary_key: ['id']
+  expected_records:
+    - id: "1"
+      name: Item One
+      date: "2026-05-08"
+      amount: "145.2"
+    - id: "2"
+      name: null
+      date: null
+      amount: null
+  expected_state: {}
