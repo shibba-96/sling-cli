@@ -911,3 +911,47 @@
       name: item_9
   expected_state: {}
 
+# id: 19 - Dynamic boolean-false-to-null via a single jq() processor.
+- id: 19
+  name: boolean_false_to_null_via_jq_processor
+  mock_response:
+    result:
+      - id: 1
+        name: Item One
+        date: "2026-05-08"
+        amount: 145.2
+        active: true
+      - id: 2
+        name: false
+        date: false
+        amount: false
+        active: false
+  spec:
+    name: test_api
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        name: test_endpoint
+        response:
+          processors:
+            # map_values walks every key/value; real boolean `false` -> null,
+            # any other value (incl. the string "false") is left untouched.
+            - expression: 'jq(record, "map_values(if . == false then null else . end)")'
+              output: record
+          records:
+            jmespath: "result[*]"
+            primary_key: ['id']
+  expected_records:
+    - id: "1"
+      name: Item One
+      date: "2026-05-08"
+      amount: "145.2"
+      active: "true"
+    - id: "2"
+      name: null
+      date: null
+      amount: null
+      active: null
+  expected_state: {}
+
