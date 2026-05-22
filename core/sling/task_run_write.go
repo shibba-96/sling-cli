@@ -308,10 +308,11 @@ func (t *TaskExecution) WriteToDb(cfg *Config, df *iop.Dataflow, tgtConn databas
 	setStage("4 - load-into-temp")
 
 	// Add cleanup task for temp table
+	tmpDroppedKey := "temp_table_dropped:" + tableTmp.FullName()
 	t.AddCleanupTaskFirst(func() {
 		if cast.ToBool(os.Getenv("SLING_KEEP_TEMP")) {
 			return
-		} else if yes, _ := t.Context.Map.Get("temp_table_dropped"); cast.ToBool(yes) {
+		} else if yes, _ := t.Context.Map.Get(tmpDroppedKey); cast.ToBool(yes) {
 			return
 		}
 
@@ -322,7 +323,7 @@ func (t *TaskExecution) WriteToDb(cfg *Config, df *iop.Dataflow, tgtConn databas
 				conn.Connect()
 			}
 		}
-		t.Context.Map.Set("temp_table_dropped", true)
+		t.Context.Map.Set(tmpDroppedKey, true)
 		g.LogError(conn.DropTable(tableTmp.FullName()))
 		conn.Close()
 	})
