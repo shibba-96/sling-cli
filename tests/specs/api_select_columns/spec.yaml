@@ -1,0 +1,39 @@
+name: "API Select Columns Test"
+description: "A public, no-auth API endpoint that returns a single record with many
+  top-level fields (~80+). Used to verify that a replication's stream-level `select`
+  option correctly limits which columns reach the target for API sources.
+  Regression coverage for the bug where `select` was silently ignored for APIs."
+
+defaults:
+  state:
+    base_url: "https://api.github.com"
+  request:
+    headers:
+      Accept: "application/vnd.github+json"
+      User-Agent: "sling-select-columns-test"
+
+endpoints:
+  # GitHub's repo endpoint returns a single object with ~80+ top-level fields.
+  # No authentication needed (unauthenticated rate limit is enough for a test).
+  repo:
+    request:
+      url: "{state.base_url}/repos/slingdata-io/sling-cli"
+      method: GET
+    response:
+      records:
+        jmespath: "@"
+        primary_key: ["id"]
+  repo_override:
+    request:
+      url: "{state.base_url}/repos/slingdata-io/sling-cli"
+      method: GET
+    response:
+      records:
+        jmespath: "@"
+        primary_key: ["id"]
+
+    overrides:
+      select:
+        - id
+        - name
+        - full_name

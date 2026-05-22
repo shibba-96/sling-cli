@@ -1850,6 +1850,7 @@ type Selector struct {
 	includeGlobs []string            // glob patterns to include (lowercase)
 	excludeGlobs []string            // glob patterns to exclude (lowercase)
 	all          bool                // true if "*" was specified
+	excludeOnly  bool                // true if only exclusions were specified (implies select-all)
 	cache        map[string]string   // cached new name
 	casing       *ColumnCasing
 	ConnType     dbio.Type
@@ -1894,6 +1895,15 @@ func NewSelector(selectExprs []string, casing ColumnCasing) *Selector {
 				s.included[fieldLower] = struct{}{}
 			}
 		}
+	}
+
+	// If only exclusions were given (no "*", no includes, no renames), treat it
+	// as select-all-except-excluded, matching the exclude semantics of a
+	// replication's `select` (see ReadFromDB in task_run_read.go). Without this,
+	// an exclude-only list would drop every non-excluded field.
+	if !s.all && len(s.included) == 0 && len(s.includeGlobs) == 0 && len(s.renamed) == 0 &&
+		(len(s.excluded) > 0 || len(s.excludeGlobs) > 0) {
+		s.excludeOnly = true
 	}
 
 	return s
@@ -1949,8 +1959,8 @@ func (s *Selector) compute(name, nameLower string) string {
 		}
 	}
 
-	// 5. If All mode, include (after exclusions checked)
-	if s.all {
+	// 5. If All mode (explicit "*" or exclude-only), include (after exclusions checked)
+	if s.all || s.excludeOnly {
 		return name
 	}
 

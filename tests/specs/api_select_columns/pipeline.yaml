@@ -1,0 +1,123 @@
+env:
+  OUT_DIR: /tmp/api_select_columns_test
+
+# Verifies that column selection is honored for API sources. The `repo` endpoint
+# returns a single record with ~80+ columns. Two ways to narrow it are covered:
+#   - Case 1: a replication's stream-level `select` (the `repo` endpoint)
+#   - Case 3: a spec endpoint's `overrides.select` (the `repo_override` endpoint),
+#             which applies even when the replication stream sets no `select`
+# Before the fix, `select` was silently ignored for API sources and ALL columns
+# landed in the target.
+#
+# Connection API_SELECT_TEST is defined in this folder's .env.sling (relative
+# spec path), so this pipeline is self-contained — run it from this directory.
+
+steps:
+  - type: log
+    message: "=== API select-columns pipeline starting ==="
+
+  # clean any previous run
+  - type: delete
+    location: local/{env.OUT_DIR}/
+    recursive: true
+
+  # --- Cases 1 & 3: stream-level `select` and spec `overrides.select` ---------
+  # `repo` narrows columns via a replication stream-level `select`.
+  # `repo_override` sets no stream-level `select` — the spec endpoint's own
+  # `overrides.select` is what must narrow it.
+  - replication:
+      source: API_SELECT_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}_selected.json"
+      streams:
+        repo:
+          select:
+            - id
+            - name
+            - full_name
+        repo_override:
+
+  # --- Case 1: stream-level `select` -----------------------------------------
+  - type: read
+    from: local/{env.OUT_DIR}/repo_selected.json
+    into: selected_body
+
+  - type: log
+    message: "stream-level select output columns: {keys(json_parse(store.selected_body)[0])}"
+
+  # The output record must have exactly the 3 selected columns.
+  - type: check
+    check: 'length(keys(json_parse(store.selected_body)[0])) == 3'
+    failure_message: "stream-level `select` was ignored — expected exactly 3 columns in the target"
+
+  - type: check
+    check: 'contains(keys(json_parse(store.selected_body)[0]), "id") && contains(keys(json_parse(store.selected_body)[0]), "name") && contains(keys(json_parse(store.selected_body)[0]), "full_name")'
+    failure_message: "selected output missing one of the expected columns id/name/full_name"
+
+  # A column that was NOT selected must be absent.
+  - type: check
+    check: '!contains(keys(json_parse(store.selected_body)[0]), "html_url")'
+    failure_message: "non-selected column `html_url` leaked into the target"
+
+  # --- Case 3: spec endpoint `overrides.select` ------------------------------
+  # The `repo_override` endpoint declares `overrides.select` in the spec itself.
+  # No stream-level `select` is set, yet the target must still get only 3 columns.
+  - type: read
+    from: local/{env.OUT_DIR}/repo_override_selected.json
+    into: override_body
+
+  - type: log
+    message: "spec overrides.select output columns: {keys(json_parse(store.override_body)[0])}"
+
+  - type: check
+    check: 'length(keys(json_parse(store.override_body)[0])) == 3'
+    failure_message: "spec `overrides.select` was ignored — expected exactly 3 columns in the target"
+
+  - type: check
+    check: 'contains(keys(json_parse(store.override_body)[0]), "id") && contains(keys(json_parse(store.override_body)[0]), "name") && contains(keys(json_parse(store.override_body)[0]), "full_name")'
+    failure_message: "overrides.select output missing one of the expected columns id/name/full_name"
+
+  - type: check
+    check: '!contains(keys(json_parse(store.override_body)[0]), "html_url")'
+    failure_message: "non-selected column `html_url` leaked into the target via overrides.select"
+
+  # --- Case 2: exclude-only select (no explicit selection) --------------------
+  # `-stargazers_url` etc. must drop only those columns and keep the rest.
+  - replication:
+      source: API_SELECT_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}_excluded.json"
+      streams:
+        repo:
+          select:
+            - "-*_url"
+            - "-owner"
+
+  - type: read
+    from: local/{env.OUT_DIR}/repo_excluded.json
+    into: excluded_body
+
+  - type: log
+    message: "excluded output columns: {keys(json_parse(store.excluded_body)[0])}"
+
+  # Exclude-only must keep non-excluded columns (e.g. id), not drop everything.
+  - type: check
+    check: 'contains(keys(json_parse(store.excluded_body)[0]), "id")'
+    failure_message: "exclude-only `select` dropped all columns instead of just the excluded ones"
+
+  # The excluded columns must be gone.
+  - type: check
+    check: '!contains(keys(json_parse(store.excluded_body)[0]), "html_url") && !contains(keys(json_parse(store.excluded_body)[0]), "owner")'
+    failure_message: "excluded columns leaked into the target"
+
+  # And the exclude-only result must still be wider than the 3-column subset.
+  - type: check
+    check: 'length(keys(json_parse(store.excluded_body)[0])) > 3'
+    failure_message: "exclude-only `select` produced too few columns"
+
+  - type: log
+    message: "=== API select-columns pipeline passed ==="

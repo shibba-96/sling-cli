@@ -2279,3 +2279,12 @@
   run: 'sling run -d -p tests/pipelines/p.31.oracle_special_types.yaml'
   output_contains:
     - 'SUCCESS: Oracle LOB / XML / binary / LONG / LONG RAW types (incl. 30MB BLOB via CSV and PARQUET) replicated to Snowflake with full row-level fidelity'
+
+- id: 238
+  name: 'replication stream-level select limits columns for API sources'
+  run: |
+    cd tests/specs/api_select_columns
+    sling run -d pipeline.yaml
+  output_contains:
+    - 'API select-columns pipeline passed'
+    - 'execution succeeded'

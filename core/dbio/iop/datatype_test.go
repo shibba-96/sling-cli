@@ -1176,7 +1176,44 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 16: Cache works - second call uses cache
+	// Test 16: Exclude-only - no explicit "*" still implies select-all
+	t.Run("ExcludeOnly", func(t *testing.T) {
+		// Only exclusions given, without a leading "*". Should behave as
+		// select-all-except-excluded, not drop every field.
+		s := NewSelector([]string{"-password", "-temp_*"}, SourceColumnCasing)
+
+		name, ok := s.Apply("id")
+		assert.True(t, ok)
+		assert.Equal(t, "id", name)
+
+		name, ok = s.Apply("email")
+		assert.True(t, ok)
+		assert.Equal(t, "email", name)
+
+		_, ok = s.Apply("password")
+		assert.False(t, ok)
+
+		_, ok = s.Apply("temp_data")
+		assert.False(t, ok)
+	})
+
+	// Test 17: Exclude-only does not trigger when an include is present
+	t.Run("ExcludeOnlyNotTriggeredWithInclude", func(t *testing.T) {
+		// A plain include alongside an exclude keeps explicit (include-only) mode.
+		s := NewSelector([]string{"id", "-password"}, SourceColumnCasing)
+
+		_, ok := s.Apply("id")
+		assert.True(t, ok)
+
+		// not selected, not excluded -> still dropped (explicit mode)
+		_, ok = s.Apply("email")
+		assert.False(t, ok)
+
+		_, ok = s.Apply("password")
+		assert.False(t, ok)
+	})
+
+	// Test 18: Cache works - second call uses cache
 	t.Run("CacheWorks", func(t *testing.T) {
 		s := NewSelector([]string{"*", "firstName as first_name"}, SourceColumnCasing)
 

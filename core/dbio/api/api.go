@@ -362,7 +362,22 @@ func (ac *APIConnection) ReadDataflow(endpointName string, sCfg APIStreamConfig)
 
 	// now that columns are detected, set the metadata for PK
 	if len(df.Buffer) > 0 {
-		err = df.Columns.SetKeys(iop.PrimaryKey, endpoint.Response.Records.PrimaryKey...)
+		primaryKey := endpoint.Response.Records.PrimaryKey
+
+		// When a column selection is applied, the primary-key column(s) may have
+		// been excluded by the user's `select`. Keep only PK columns that survived
+		// into the final columns so SetKeys does not fail on a missing column.
+		if len(sCfg.Select) > 0 && len(primaryKey) > 0 {
+			survivingPK := make([]string, 0, len(primaryKey))
+			for _, pk := range primaryKey {
+				if df.Columns.GetColumn(pk) != nil {
+					survivingPK = append(survivingPK, pk)
+				}
+			}
+			primaryKey = survivingPK
+		}
+
+		err = df.Columns.SetKeys(iop.PrimaryKey, primaryKey...)
 		if err != nil {
 			return nil, g.Error(err, "could not set primary key column")
 		}
