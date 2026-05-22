@@ -325,7 +325,7 @@ func (c *Connection) URL() string {
 // Close closes the connection
 func (c *Connection) Close() error {
 	// remove from cache
-	defer connCache.Remove(c.Hash())
+	defer Cache.Remove(c.Hash())
 
 	if c.Database != nil {
 		return c.Database.Close()
@@ -341,7 +341,7 @@ func (c *Connection) Close() error {
 	return nil
 }
 
-var connCache = cmap.New[*Connection]()
+var Cache = cmap.New[*Connection]()
 
 type AsConnOptions struct {
 	UseCache bool
@@ -366,7 +366,7 @@ func (c *Connection) AsDatabaseContext(ctx context.Context, options ...AsConnOpt
 
 	// build input data
 
-	if cc, ok := connCache.Get(c.Hash()); ok && opt.UseCache {
+	if cc, ok := Cache.Get(c.Hash()); ok && opt.UseCache {
 		if cc.Database != nil {
 			return cc.Database, nil
 		}
@@ -379,7 +379,7 @@ func (c *Connection) AsDatabaseContext(ctx context.Context, options ...AsConnOpt
 	if err != nil {
 		return
 	}
-	connCache.Set(c.Hash(), c) // cache
+	Cache.Set(c.Hash(), c) // cache
 
 	if opt.Expire > 0 {
 		time.AfterFunc(time.Duration(opt.Expire)*time.Second, func() {
@@ -409,7 +409,7 @@ func (c *Connection) AsFileContext(ctx context.Context, options ...AsConnOptions
 	cacheKey := c.Hash("url")
 
 	// default cache to true
-	if cc, ok := connCache.Get(cacheKey); ok && opt.UseCache {
+	if cc, ok := Cache.Get(cacheKey); ok && opt.UseCache {
 		if cc.File != nil {
 			return cc.File, nil
 		}
@@ -425,7 +425,7 @@ func (c *Connection) AsFileContext(ctx context.Context, options ...AsConnOptions
 	}
 
 	// set cache
-	connCache.Set(cacheKey, c)
+	Cache.Set(cacheKey, c)
 
 	if opt.Expire > 0 {
 		time.AfterFunc(time.Duration(opt.Expire)*time.Second, func() {
@@ -459,7 +459,7 @@ func (c *Connection) AsAPIContext(ctx context.Context, options ...AsConnOptions)
 	}
 
 	// default cache to true
-	if cc, ok := connCache.Get(c.Hash()); ok && opt.UseCache {
+	if cc, ok := Cache.Get(c.Hash()); ok && opt.UseCache {
 		if cc.API != nil {
 			return cc.API, nil
 		}
@@ -475,7 +475,7 @@ func (c *Connection) AsAPIContext(ctx context.Context, options ...AsConnOptions)
 	if err != nil {
 		return
 	}
-	connCache.Set(c.Hash(), c) // cache
+	Cache.Set(c.Hash(), c) // cache
 
 	return c.API, nil
 }
@@ -1092,7 +1092,7 @@ func (c *Connection) setURL() (err error) {
 
 // CloseAll closes all cached connections
 func CloseAll() {
-	for _, conn := range connCache.Items() {
+	for _, conn := range Cache.Items() {
 		conn.Close()
 	}
 }
@@ -1101,7 +1101,7 @@ func CloseAll() {
 // AsDatabaseContext / AsFileContext / AsAPIContext call rebuilds it.
 // Use this after detecting a dead underlying handle (e.g. "sql: database is closed").
 func PurgeCache(hash string) {
-	connCache.Remove(hash)
+	Cache.Remove(hash)
 }
 
 // CopyDirect copies directly from cloud files
