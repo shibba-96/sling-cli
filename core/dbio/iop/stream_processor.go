@@ -68,6 +68,7 @@ type StreamConfig struct {
 	FieldsPerRec    int            `json:"fields_per_rec"`
 	Jmespath        string         `json:"jmespath"`
 	Jq              string         `json:"jq"`
+	Select          []string       `json:"select"` // applied to JSON-family streams
 	Sheet           string         `json:"sheet"`
 	ColumnCasing    ColumnCasing   `json:"column_casing"`
 	ColumnTyping    ColumnTyping   `json:"column_typing"`

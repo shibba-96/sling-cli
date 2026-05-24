@@ -649,10 +649,9 @@ func TestParseString(t *testing.T) {
 }
 
 func TestValidateNames(t *testing.T) {
-	// Test 1: Column names shorter than max length - should remain unchanged
+	// Postgres has max_column_length of 63.
 	t.Run("ColumnNamesShorterThanMaxLength", func(t *testing.T) {
 		cols := NewColumnsFromFields("id", "name", "email")
-		// Postgres has max_column_length of 63
 		newCols := cols.ValidateNames(dbio.TypeDbPostgres)
 
 		assert.Equal(t, "id", newCols[0].Name)
@@ -660,73 +659,55 @@ func TestValidateNames(t *testing.T) {
 		assert.Equal(t, "email", newCols[2].Name)
 	})
 
-	// Test 2: Column names exceeding max length - should be truncated
 	t.Run("ColumnNamesExceedingMaxLength", func(t *testing.T) {
 		longName := "this_is_a_very_long_column_name_that_exceeds_postgres_column_name_length_limit_of_63_characters"
 		cols := NewColumnsFromFields("id", longName, "email")
-		// Postgres has max_column_length of 63
 		newCols := cols.ValidateNames(dbio.TypeDbPostgres)
 		maxLength := cast.ToInt(dbio.TypeDbPostgres.GetTemplateValue("variable.max_column_length"))
 
 		assert.Equal(t, "id", newCols[0].Name)
-		assert.Equal(t, longName[:maxLength], newCols[1].Name) // Should be truncated to 63 chars
+		assert.Equal(t, longName[:maxLength], newCols[1].Name)
 		assert.Equal(t, "email", newCols[2].Name)
 	})
 
-	// Test 3: Truncated names causing conflicts - should add suffix
 	t.Run("TruncatedNamesWithConflicts", func(t *testing.T) {
-		// Both columns will truncate to the same prefix
+		// both columns truncate to the same prefix; second gets `_1` suffix
 		col1 := "abcdefghijklmnopqrstuvwxyz_abcdefghijklmnopqrstuvwxyz_1234567890"
 		col2 := "abcdefghijklmnopqrstuvwxyz_abcdefghijklmnopqrstuvwxyz_1234567890"
 		cols := NewColumnsFromFields(col1, col2)
-		// Postgres has max_column_length of 63
 		newCols := cols.ValidateNames(dbio.TypeDbPostgres)
 
-		// First column should be truncated without suffix
 		assert.Equal(t, col1[:63], newCols[0].Name)
-
-		// Second column should be truncated with a suffix
-		// The suffix pattern should be original name (truncated to fit) + "_1"
 		assert.Equal(t, "abcdefghijklmnopqrstuvwxyz_abcdefghijklmnopqrstuvwxyz_1234567_1", newCols[1].Name)
-		assert.Equal(t, 63, len(newCols[1].Name)) // Should still be 63 chars
+		assert.Equal(t, 63, len(newCols[1].Name))
 	})
 
-	// Test 4: Database with no max length defined - should return unchanged
 	t.Run("DatabaseWithNoMaxLength", func(t *testing.T) {
-		// Create a mock Type that doesn't have max_column_length defined
+		// type without `max_column_length` defined -> pass-through
 		mockType := dbio.Type("mock_type")
 
 		longName := "this_is_a_very_long_column_name_that_would_normally_be_truncated"
 		cols := NewColumnsFromFields("id", longName, "email")
 		newCols := cols.ValidateNames(mockType)
 
-		// Names should remain unchanged
 		assert.Equal(t, "id", newCols[0].Name)
 		assert.Equal(t, longName, newCols[1].Name)
 		assert.Equal(t, "email", newCols[2].Name)
 	})
 
-	// Test 5: Multiple conflicts requiring incrementing suffixes
 	t.Run("MultipleConflictsWithIncrementingSuffixes", func(t *testing.T) {
-		// Create three identical columns that will cause conflicts
+		// three identical columns -> first truncated, then _1, _2 suffixes
 		prefix := "abcdefghijklmnopqrstuvwxyz_abcdefghijklmnopqrstuvwxyz_1234567890"
 		cols := NewColumnsFromFields(prefix, prefix, prefix)
-		// Postgres has max_column_length of 63
 		newCols := cols.ValidateNames(dbio.TypeDbPostgres)
 
-		// First column should be truncated without suffix
 		assert.Equal(t, prefix[:63], newCols[0].Name)
-
-		// Second column should have _1 suffix
 		assert.Equal(t, "abcdefghijklmnopqrstuvwxyz_abcdefghijklmnopqrstuvwxyz_1234567_1", newCols[1].Name)
-
-		// Third column should have _2 suffix
 		assert.Equal(t, "abcdefghijklmnopqrstuvwxyz_abcdefghijklmnopqrstuvwxyz_1234567_2", newCols[2].Name)
 	})
 }
 
 func TestDecodeJSONIfBase64(t *testing.T) {
-	// Test 1: Valid JSON - should return as-is
 	t.Run("ValidJSON", func(t *testing.T) {
 		validJSON := `{"key": "value", "number": 123}`
 		result, err := DecodeJSONIfBase64(validJSON)
@@ -734,7 +715,6 @@ func TestDecodeJSONIfBase64(t *testing.T) {
 		assert.Equal(t, validJSON, result)
 	})
 
-	// Test 2: Base64-encoded JSON - should decode
 	t.Run("Base64EncodedJSON", func(t *testing.T) {
 		originalJSON := `{"type": "service_account", "project_id": "my-project"}`
 		base64JSON := base64.StdEncoding.EncodeToString([]byte(originalJSON))
@@ -744,7 +724,6 @@ func TestDecodeJSONIfBase64(t *testing.T) {
 		assert.Equal(t, originalJSON, result)
 	})
 
-	// Test 3: Complex nested JSON in base64
 	t.Run("Base64EncodedComplexJSON", func(t *testing.T) {
 		complexJSON := `{
   "type": "service_account",
@@ -765,7 +744,6 @@ func TestDecodeJSONIfBase64(t *testing.T) {
 		assert.JSONEq(t, complexJSON, result)
 	})
 
-	// Test 4: Invalid base64 - should return original
 	t.Run("InvalidBase64", func(t *testing.T) {
 		invalidBase64 := "this is not base64 !!@@##"
 		result, err := DecodeJSONIfBase64(invalidBase64)
@@ -773,25 +751,22 @@ func TestDecodeJSONIfBase64(t *testing.T) {
 		assert.Equal(t, invalidBase64, result)
 	})
 
-	// Test 5: Valid base64 but not JSON - should return original
 	t.Run("Base64NotJSON", func(t *testing.T) {
 		notJSON := "just some plain text"
 		base64NotJSON := base64.StdEncoding.EncodeToString([]byte(notJSON))
 
 		result, err := DecodeJSONIfBase64(base64NotJSON)
 		assert.NoError(t, err)
-		// Should return the base64 string since decoded content is not valid JSON
+		// decoded content isn't valid JSON, so the base64 string passes through
 		assert.Equal(t, base64NotJSON, result)
 	})
 
-	// Test 6: Empty string - should return empty string
 	t.Run("EmptyString", func(t *testing.T) {
 		result, err := DecodeJSONIfBase64("")
 		assert.NoError(t, err)
 		assert.Equal(t, "", result)
 	})
 
-	// Test 7: JSON array in base64
 	t.Run("Base64EncodedJSONArray", func(t *testing.T) {
 		jsonArray := `[{"id": 1, "name": "test"}, {"id": 2, "name": "test2"}]`
 		base64Array := base64.StdEncoding.EncodeToString([]byte(jsonArray))
@@ -801,7 +776,6 @@ func TestDecodeJSONIfBase64(t *testing.T) {
 		assert.JSONEq(t, jsonArray, result)
 	})
 
-	// Test 8: JSON with special characters
 	t.Run("Base64EncodedJSONWithSpecialChars", func(t *testing.T) {
 		specialJSON := `{"message": "Hello\nWorld\t!", "emoji": "🎉", "quotes": "He said \"hi\""}`
 		base64Special := base64.StdEncoding.EncodeToString([]byte(specialJSON))
@@ -813,52 +787,44 @@ func TestDecodeJSONIfBase64(t *testing.T) {
 }
 
 func TestApplySelect(t *testing.T) {
-	// Common test fields
 	fields := []string{"id", "firstName", "lastName", "email", "password", "user_internal", "temp_data", "created_at"}
 
-	// Test 1: Empty select -> return all fields unchanged
 	t.Run("EmptySelect", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{})
 		assert.NoError(t, err)
 		assert.Equal(t, fields, result)
 	})
 
-	// Test 2: Nil select -> return all fields unchanged
 	t.Run("NilSelect", func(t *testing.T) {
 		result, err := ApplySelect(fields, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, fields, result)
 	})
 
-	// Test 3: Exclude single field
 	t.Run("ExcludeSingleField", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "-password"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"id", "firstName", "lastName", "email", "user_internal", "temp_data", "created_at"}, result)
 	})
 
-	// Test 4: Include by prefix
 	t.Run("IncludeByPrefix", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"user_*"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"user_internal"}, result)
 	})
 
-	// Test 5: Exclude by suffix
 	t.Run("ExcludeBySuffix", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "-*_internal"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"id", "firstName", "lastName", "email", "password", "temp_data", "created_at"}, result)
 	})
 
-	// Test 6: Rename only (explicit mode - select only that field)
 	t.Run("RenameOnly", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"firstName as first_name"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"first_name"}, result)
 	})
 
-	// Test 7: Select all with rename
 	t.Run("SelectAllWithRename", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "firstName as first_name"})
 		assert.NoError(t, err)
@@ -866,7 +832,6 @@ func TestApplySelect(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	// Test 8: Select all, rename, exclude
 	t.Run("SelectAllRenameExclude", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "firstName as first_name", "-password"})
 		assert.NoError(t, err)
@@ -874,14 +839,12 @@ func TestApplySelect(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	// Test 9: Multiple explicit includes
 	t.Run("MultipleIncludes", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"id", "email"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"id", "email"}, result)
 	})
 
-	// Test 10: Multiple excludes
 	t.Run("MultipleExcludes", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "-password", "-email"})
 		assert.NoError(t, err)
@@ -889,14 +852,12 @@ func TestApplySelect(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	// Test 11: Glob include with prefix
 	t.Run("GlobIncludePrefix", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"temp_*"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"temp_data"}, result)
 	})
 
-	// Test 12: Glob exclude with prefix
 	t.Run("GlobExcludePrefix", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "-temp_*"})
 		assert.NoError(t, err)
@@ -904,14 +865,12 @@ func TestApplySelect(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	// Test 13: Case insensitivity
 	t.Run("CaseInsensitivity", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"FIRSTNAME as first_name", "LASTNAME as last_name"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"first_name", "last_name"}, result)
 	})
 
-	// Test 14: Error on field not found (explicit mode)
 	t.Run("ErrorFieldNotFound", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"nonexistent"})
 		assert.Error(t, err)
@@ -919,14 +878,12 @@ func TestApplySelect(t *testing.T) {
 		assert.Contains(t, err.Error(), "nonexistent")
 	})
 
-	// Test 15: Order preservation in explicit mode
 	t.Run("OrderPreservation", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"email", "id", "lastName"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"email", "id", "lastName"}, result)
 	})
 
-	// Test 16: Complex select
 	t.Run("ComplexSelect", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "firstName as first_name", "lastName as last_name", "-password", "-*_internal"})
 		assert.NoError(t, err)
@@ -934,14 +891,12 @@ func TestApplySelect(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	// Test 17: Include by suffix
 	t.Run("IncludeBySuffix", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*_at"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"created_at"}, result)
 	})
 
-	// Test 18: Error on rename with exclusion combined
 	t.Run("ErrorRenameWithExclusion", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"-firstName as first_name"})
 		assert.Error(t, err)
@@ -949,37 +904,82 @@ func TestApplySelect(t *testing.T) {
 		assert.Contains(t, err.Error(), "cannot combine")
 	})
 
-	// Test 19: Rename not found in all mode
 	t.Run("ErrorRenameNotFoundAllMode", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "nonexistent as new_name"})
 		assert.Error(t, err)
 		assert.Nil(t, result)
 	})
 
-	// Test 20: Exclusion of non-existent field is silently ignored
 	t.Run("ExcludeNonexistentSilent", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*", "-nonexistent"})
 		assert.NoError(t, err)
 		assert.Equal(t, fields, result)
 	})
 
-	// Test 21: Duplicate field selection (should only include once)
 	t.Run("DuplicateSelection", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"id", "email", "id"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"id", "email"}, result)
 	})
 
-	// Test 22: Contains glob pattern (*middle*)
 	t.Run("ContainsGlob", func(t *testing.T) {
 		result, err := ApplySelect(fields, []string{"*Name*"})
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"firstName", "lastName"}, result)
 	})
+
+	// Reordering: explicit names pin position; `*` and globs expand in place,
+	// in source order, skipping pins.
+
+	t.Run("ReorderFrontWithStar", func(t *testing.T) {
+		result, err := ApplySelect(fields, []string{"id", "email", "*"})
+		assert.NoError(t, err)
+		expected := []string{"id", "email", "firstName", "lastName", "password", "user_internal", "temp_data", "created_at"}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("ReorderFrontAndBackWithStar", func(t *testing.T) {
+		result, err := ApplySelect(fields, []string{"id", "firstName", "*", "created_at", "user_internal"})
+		assert.NoError(t, err)
+		expected := []string{"id", "firstName", "lastName", "email", "password", "temp_data", "created_at", "user_internal"}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("ReorderWithGlobsAndStar", func(t *testing.T) {
+		result, err := ApplySelect(fields, []string{"id", "user_*", "*", "*_at"})
+		assert.NoError(t, err)
+		expected := []string{"id", "user_internal", "firstName", "lastName", "email", "password", "temp_data", "created_at"}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("ReorderExactAfterStarPinsToBack", func(t *testing.T) {
+		result, err := ApplySelect(fields, []string{"id", "*", "email"})
+		assert.NoError(t, err)
+		expected := []string{"id", "firstName", "lastName", "password", "user_internal", "temp_data", "created_at", "email"}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("ReorderGlobsExplicitMode", func(t *testing.T) {
+		result, err := ApplySelect(fields, []string{"id", "user_*", "*_at"})
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"id", "user_internal", "created_at"}, result)
+	})
+
+	t.Run("ReorderFrontRenameWithStar", func(t *testing.T) {
+		result, err := ApplySelect(fields, []string{"firstName as first_name", "id", "*"})
+		assert.NoError(t, err)
+		expected := []string{"first_name", "id", "lastName", "email", "password", "user_internal", "temp_data", "created_at"}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("ReorderExplicitNoStar", func(t *testing.T) {
+		result, err := ApplySelect(fields, []string{"id", "email", "created_at"})
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"id", "email", "created_at"}, result)
+	})
 }
 
 func TestSelectorApply(t *testing.T) {
-	// Test 1: Empty selector - nothing included
 	t.Run("EmptySelector", func(t *testing.T) {
 		s := NewSelector([]string{}, SourceColumnCasing)
 		name, ok := s.Apply("anyField")
@@ -987,7 +987,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.Equal(t, "", name)
 	})
 
-	// Test 2: Exact include
 	t.Run("ExactInclude", func(t *testing.T) {
 		s := NewSelector([]string{"id", "email"}, SourceColumnCasing)
 		name, ok := s.Apply("id")
@@ -1003,7 +1002,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.Equal(t, "", name)
 	})
 
-	// Test 3: Exact exclude with All mode
 	t.Run("ExactExclude", func(t *testing.T) {
 		s := NewSelector([]string{"*", "-password"}, SourceColumnCasing)
 		name, ok := s.Apply("id")
@@ -1015,19 +1013,16 @@ func TestSelectorApply(t *testing.T) {
 		assert.Equal(t, "", name)
 	})
 
-	// Test 4: Rename
 	t.Run("Rename", func(t *testing.T) {
 		s := NewSelector([]string{"firstName as first_name"}, SourceColumnCasing)
 		name, ok := s.Apply("firstName")
 		assert.True(t, ok)
 		assert.Equal(t, "first_name", name)
 
-		// Other fields not included
 		_, ok = s.Apply("lastName")
 		assert.False(t, ok)
 	})
 
-	// Test 5: All mode with rename
 	t.Run("AllModeWithRename", func(t *testing.T) {
 		s := NewSelector([]string{"*", "firstName as first_name"}, SourceColumnCasing)
 		name, ok := s.Apply("firstName")
@@ -1039,7 +1034,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.Equal(t, "lastName", name)
 	})
 
-	// Test 6: Glob include (prefix*)
 	t.Run("GlobIncludePrefix", func(t *testing.T) {
 		s := NewSelector([]string{"user_*"}, SourceColumnCasing)
 		name, ok := s.Apply("user_id")
@@ -1054,7 +1048,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 7: Glob include (*suffix)
 	t.Run("GlobIncludeSuffix", func(t *testing.T) {
 		s := NewSelector([]string{"*_at"}, SourceColumnCasing)
 		name, ok := s.Apply("created_at")
@@ -1068,7 +1061,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 8: Glob exclude
 	t.Run("GlobExclude", func(t *testing.T) {
 		s := NewSelector([]string{"*", "-temp_*"}, SourceColumnCasing)
 		_, ok := s.Apply("id")
@@ -1081,7 +1073,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 9: Case insensitivity
 	t.Run("CaseInsensitivity", func(t *testing.T) {
 		s := NewSelector([]string{"FIRSTNAME as first_name"}, SourceColumnCasing)
 		name, ok := s.Apply("firstName")
@@ -1097,7 +1088,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.Equal(t, "first_name", name)
 	})
 
-	// Test 10: Case insensitivity for exact include
 	t.Run("CaseInsensitivityInclude", func(t *testing.T) {
 		s := NewSelector([]string{"ID", "Email"}, SourceColumnCasing)
 		name, ok := s.Apply("id")
@@ -1109,7 +1099,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.Equal(t, "EMAIL", name) // preserves original case
 	})
 
-	// Test 11: Case insensitivity for exclude
 	t.Run("CaseInsensitivityExclude", func(t *testing.T) {
 		s := NewSelector([]string{"*", "-PASSWORD"}, SourceColumnCasing)
 		_, ok := s.Apply("password")
@@ -1119,20 +1108,17 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 12: Priority - rename wins over exclude
 	t.Run("PriorityRenameOverExclude", func(t *testing.T) {
-		// If a field is both renamed and in an exclusion pattern, rename wins
+		// rename wins over an overlapping exclusion glob
 		s := NewSelector([]string{"*", "temp_data as data", "-temp_*"}, SourceColumnCasing)
 		name, ok := s.Apply("temp_data")
 		assert.True(t, ok)
 		assert.Equal(t, "data", name)
 
-		// But other temp_* fields are excluded
 		_, ok = s.Apply("temp_file")
 		assert.False(t, ok)
 	})
 
-	// Test 13: Contains glob (*middle*)
 	t.Run("ContainsGlob", func(t *testing.T) {
 		s := NewSelector([]string{"*Name*"}, SourceColumnCasing)
 		_, ok := s.Apply("firstName")
@@ -1145,7 +1131,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 14: All mode alone
 	t.Run("AllModeAlone", func(t *testing.T) {
 		s := NewSelector([]string{"*"}, SourceColumnCasing)
 		name, ok := s.Apply("anyField")
@@ -1153,7 +1138,6 @@ func TestSelectorApply(t *testing.T) {
 		assert.Equal(t, "anyField", name)
 	})
 
-	// Test 15: Complex scenario
 	t.Run("ComplexScenario", func(t *testing.T) {
 		s := NewSelector([]string{"*", "firstName as first_name", "lastName as last_name", "-password", "-*_internal"}, SourceColumnCasing)
 
@@ -1176,10 +1160,8 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 16: Exclude-only - no explicit "*" still implies select-all
 	t.Run("ExcludeOnly", func(t *testing.T) {
-		// Only exclusions given, without a leading "*". Should behave as
-		// select-all-except-excluded, not drop every field.
+		// exclude-only implies select-all-except-excluded
 		s := NewSelector([]string{"-password", "-temp_*"}, SourceColumnCasing)
 
 		name, ok := s.Apply("id")
@@ -1197,15 +1179,14 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 17: Exclude-only does not trigger when an include is present
 	t.Run("ExcludeOnlyNotTriggeredWithInclude", func(t *testing.T) {
-		// A plain include alongside an exclude keeps explicit (include-only) mode.
+		// any plain include alongside an exclude keeps explicit (include-only) mode
 		s := NewSelector([]string{"id", "-password"}, SourceColumnCasing)
 
 		_, ok := s.Apply("id")
 		assert.True(t, ok)
 
-		// not selected, not excluded -> still dropped (explicit mode)
+		// not selected, not excluded -> still dropped
 		_, ok = s.Apply("email")
 		assert.False(t, ok)
 
@@ -1213,21 +1194,159 @@ func TestSelectorApply(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	// Test 18: Cache works - second call uses cache
 	t.Run("CacheWorks", func(t *testing.T) {
 		s := NewSelector([]string{"*", "firstName as first_name"}, SourceColumnCasing)
 
-		// First call - computes and caches
 		name1, ok1 := s.Apply("firstName")
 		assert.True(t, ok1)
 		assert.Equal(t, "first_name", name1)
 
-		// Verify it's in cache
 		assert.Contains(t, s.cache, "firstname")
 
-		// Second call - should use cache
 		name2, ok2 := s.Apply("firstName")
 		assert.Equal(t, name1, name2)
 		assert.Equal(t, ok1, ok2)
+	})
+}
+
+// SQL-builder variant: keeps `name as alias` intact in the output.
+func TestApplySelectExprs(t *testing.T) {
+	fields := []string{"id", "firstName", "lastName", "email", "password", "user_internal", "temp_data", "created_at"}
+
+	t.Run("EmptyReturnsAllUnchanged", func(t *testing.T) {
+		got, err := ApplySelectExprs(fields, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, fields, got)
+	})
+
+	t.Run("RenameKeepsExprForm", func(t *testing.T) {
+		got, err := ApplySelectExprs(fields, []string{"id", "firstName as first_name"})
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"id", "firstName as first_name"}, got)
+	})
+
+	t.Run("StarWithRenameKeepsExprForm", func(t *testing.T) {
+		got, err := ApplySelectExprs(fields, []string{"*", "firstName as first_name"})
+		assert.NoError(t, err)
+		// `*` emits firstName as `firstName as first_name` (not bare `first_name`)
+		expected := []string{"id", "firstName as first_name", "lastName", "email", "password", "user_internal", "temp_data", "created_at"}
+		assert.Equal(t, expected, got)
+	})
+
+	t.Run("PinFrontWithStar", func(t *testing.T) {
+		got, err := ApplySelectExprs(fields, []string{"id", "email", "*"})
+		assert.NoError(t, err)
+		expected := []string{"id", "email", "firstName", "lastName", "password", "user_internal", "temp_data", "created_at"}
+		assert.Equal(t, expected, got)
+	})
+
+	t.Run("PinFrontAndBackWithStar", func(t *testing.T) {
+		got, err := ApplySelectExprs(fields, []string{"id", "firstName", "*", "created_at", "user_internal"})
+		assert.NoError(t, err)
+		expected := []string{"id", "firstName", "lastName", "email", "password", "temp_data", "created_at", "user_internal"}
+		assert.Equal(t, expected, got)
+	})
+
+	t.Run("MixedRenameAndPin", func(t *testing.T) {
+		got, err := ApplySelectExprs(fields, []string{"id", "firstName as first_name", "*", "created_at"})
+		assert.NoError(t, err)
+		expected := []string{"id", "firstName as first_name", "lastName", "email", "password", "user_internal", "temp_data", "created_at"}
+		assert.Equal(t, expected, got)
+	})
+
+	t.Run("GlobsInPlace", func(t *testing.T) {
+		got, err := ApplySelectExprs(fields, []string{"id", "user_*", "*"})
+		assert.NoError(t, err)
+		expected := []string{"id", "user_internal", "firstName", "lastName", "email", "password", "temp_data", "created_at"}
+		assert.Equal(t, expected, got)
+	})
+
+	t.Run("ExcludeOnlyKeepsSourceOrder", func(t *testing.T) {
+		// degenerate: exclude-only via this entrypoint emits nothing
+		// (DB path branches around it before calling ApplySelectExprs)
+		got, err := ApplySelectExprs(fields, []string{"-password", "-temp_*"})
+		assert.NoError(t, err)
+		assert.Empty(t, got)
+	})
+}
+
+// Reordering through the Selector path used by the API consumer.
+func TestSelectorOrderFields(t *testing.T) {
+	fields := []string{"id", "firstName", "lastName", "email", "password", "user_internal", "temp_data", "created_at"}
+
+	t.Run("EmptySelectorReturnsAllInOrder", func(t *testing.T) {
+		s := NewSelector(nil, SourceColumnCasing)
+		assert.Equal(t, fields, s.OrderFields(fields))
+	})
+
+	t.Run("StarAlone", func(t *testing.T) {
+		s := NewSelector([]string{"*"}, SourceColumnCasing)
+		assert.Equal(t, fields, s.OrderFields(fields))
+	})
+
+	t.Run("PinFrontWithStar", func(t *testing.T) {
+		s := NewSelector([]string{"id", "email", "*"}, SourceColumnCasing)
+		expected := []string{"id", "email", "firstName", "lastName", "password", "user_internal", "temp_data", "created_at"}
+		assert.Equal(t, expected, s.OrderFields(fields))
+	})
+
+	t.Run("PinFrontAndBackWithStar", func(t *testing.T) {
+		s := NewSelector([]string{"id", "firstName", "*", "created_at", "user_internal"}, SourceColumnCasing)
+		expected := []string{"id", "firstName", "lastName", "email", "password", "temp_data", "created_at", "user_internal"}
+		assert.Equal(t, expected, s.OrderFields(fields))
+	})
+
+	t.Run("GlobsInPlaceWithStar", func(t *testing.T) {
+		s := NewSelector([]string{"id", "user_*", "*"}, SourceColumnCasing)
+		expected := []string{"id", "user_internal", "firstName", "lastName", "email", "password", "temp_data", "created_at"}
+		assert.Equal(t, expected, s.OrderFields(fields))
+	})
+
+	t.Run("ExplicitOnlyKeepsListedOrder", func(t *testing.T) {
+		s := NewSelector([]string{"email", "id", "lastName"}, SourceColumnCasing)
+		assert.Equal(t, []string{"email", "id", "lastName"}, s.OrderFields(fields))
+	})
+
+	t.Run("RenameAtFrontWithStar", func(t *testing.T) {
+		s := NewSelector([]string{"firstName as first_name", "id", "*"}, SourceColumnCasing)
+		expected := []string{"first_name", "id", "lastName", "email", "password", "user_internal", "temp_data", "created_at"}
+		assert.Equal(t, expected, s.OrderFields(fields))
+	})
+
+	t.Run("ExcludeNarrowsStar", func(t *testing.T) {
+		s := NewSelector([]string{"id", "*", "-password", "-temp_*"}, SourceColumnCasing)
+		expected := []string{"id", "firstName", "lastName", "email", "user_internal", "created_at"}
+		assert.Equal(t, expected, s.OrderFields(fields))
+	})
+
+	t.Run("ExcludeOnlyImpliesStar", func(t *testing.T) {
+		s := NewSelector([]string{"-password", "-temp_*"}, SourceColumnCasing)
+		expected := []string{"id", "firstName", "lastName", "email", "user_internal", "created_at"}
+		assert.Equal(t, expected, s.OrderFields(fields))
+	})
+
+	t.Run("DuplicateExactDeduped", func(t *testing.T) {
+		s := NewSelector([]string{"id", "email", "id"}, SourceColumnCasing)
+		assert.Equal(t, []string{"id", "email"}, s.OrderFields(fields))
+	})
+
+	t.Run("ExactAfterStarPinsToBack", func(t *testing.T) {
+		// `*` skips `email` during expansion; `email` lands at its written position
+		s := NewSelector([]string{"id", "*", "email"}, SourceColumnCasing)
+		expected := []string{"id", "firstName", "lastName", "password", "user_internal", "temp_data", "created_at", "email"}
+		assert.Equal(t, expected, s.OrderFields(fields))
+	})
+
+	t.Run("UnknownExactSilentlySkipped", func(t *testing.T) {
+		// OrderFields silently skips unknowns (ApplySelect errors); the API
+		// caller already filtered per-record via Selector.Apply.
+		s := NewSelector([]string{"id", "nonexistent", "email"}, SourceColumnCasing)
+		assert.Equal(t, []string{"id", "email"}, s.OrderFields(fields))
+	})
+
+	t.Run("CaseInsensitiveMatch", func(t *testing.T) {
+		s := NewSelector([]string{"ID", "FIRSTNAME", "*"}, SourceColumnCasing)
+		expected := []string{"id", "firstName", "lastName", "email", "password", "user_internal", "temp_data", "created_at"}
+		assert.Equal(t, expected, s.OrderFields(fields))
 	})
 }

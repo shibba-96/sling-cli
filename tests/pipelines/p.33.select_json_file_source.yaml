@@ -1,0 +1,132 @@
+# Verifies that `select` on a JSON file source supports the full grammar:
+# explicit lists, glob exclusions, renames, and reorder via front pins + `*`.
+# Assertions use raw-byte regex on each output file because keys(json_parse(...))
+# loses column order (Go map iteration scrambles it). `*` expansion follows
+# the source key order — jsonStream peeks the raw JSON bytes via RawMessage
+# and FirstObjectKeysInOrder before unmarshaling.
+
+env:
+  WORK: temp/p33_select_json
+
+steps:
+  - type: log
+    message: "=== select on JSON file source: starting ==="
+
+  - type: delete
+    location: local/{env.WORK}/
+    recursive: true
+
+  # Source fixture: 5 top-level keys per record. Intentionally non-alphabetical.
+  - type: write
+    to: local/{env.WORK}/src.json
+    content: |
+      [
+        {"id": 1, "name": "Alice", "email": "alice@example.com", "internal_score": 99, "age": 30},
+        {"id": 2, "name": "Bob",   "email": "bob@example.com",   "internal_score": 42, "age": 25}
+      ]
+
+  # --- Case 1: explicit list narrows to exactly [id, name] in that order.
+  - replication:
+      source: local
+      target: local
+      defaults:
+        mode: full-refresh
+        source_options:
+          flatten: true
+      streams:
+        file://{env.WORK}/src.json:
+          object: "file://{env.WORK}/case1_explicit.json"
+          select: [id, name]
+
+  - type: read
+    from: local/{env.WORK}/case1_explicit.json
+    into: case1_body
+
+  - type: log
+    message: "case1 body: {store.case1_body}"
+
+  # Exactly: `[{"id":...,"name":...}, ...]` — no other top-level keys.
+  - type: check
+    check: 'regex_match(store.case1_body, "^\\[\\{\"id\":[^,]*,\"name\":[^}]*\\},")'
+
+  # --- Case 2: glob exclusion drops `internal_*`. Implicit `*` keeps the
+  # rest in source order (recovered from raw bytes by jsonStream).
+  - replication:
+      source: local
+      target: local
+      defaults:
+        mode: full-refresh
+        source_options:
+          flatten: true
+      streams:
+        file://{env.WORK}/src.json:
+          object: "file://{env.WORK}/case2_exclude.json"
+          select: ["-internal_*"]
+
+  - type: read
+    from: local/{env.WORK}/case2_exclude.json
+    into: case2_body
+
+  - type: log
+    message: "case2 body: {store.case2_body}"
+
+  # id, name, email, age in source order; no `internal_score` anywhere.
+  - type: check
+    check: 'regex_match(store.case2_body, "^\\[\\{\"id\":[^,]*,\"name\":[^,]*,\"email\":[^,]*,\"age\":[^}]*\\}")'
+
+  - type: check
+    check: '!regex_match(store.case2_body, "internal_score")'
+
+  # --- Case 3: rename `id as uid` plus pass-through of `name`.
+  - replication:
+      source: local
+      target: local
+      defaults:
+        mode: full-refresh
+        source_options:
+          flatten: true
+      streams:
+        file://{env.WORK}/src.json:
+          object: "file://{env.WORK}/case3_rename.json"
+          select: ["id as uid", "name"]
+
+  - type: read
+    from: local/{env.WORK}/case3_rename.json
+    into: case3_body
+
+  - type: log
+    message: "case3 body: {store.case3_body}"
+
+  - type: check
+    check: 'regex_match(store.case3_body, "^\\[\\{\"uid\":[^,]*,\"name\":[^}]*\\}")'
+
+  - type: check
+    check: '!regex_match(store.case3_body, "\"id\":")'
+
+  # --- Case 4: front pins (name, id) + `*` (alphabetical fill) + back pin (age).
+  - replication:
+      source: local
+      target: local
+      defaults:
+        mode: full-refresh
+        source_options:
+          flatten: true
+      streams:
+        file://{env.WORK}/src.json:
+          object: "file://{env.WORK}/case4_reorder.json"
+          select: [name, id, "*", age]
+
+  - type: read
+    from: local/{env.WORK}/case4_reorder.json
+    into: case4_body
+
+  - type: log
+    message: "case4 body: {store.case4_body}"
+
+  # name, id (front pins); email, internal_score (remaining via `*`, alphabetical);
+  # age (back pin).
+  - type: check
+    check: 'regex_match(store.case4_body, "^\\[\\{\"name\":[^,]*,\"id\":[^,]*,\"email\":[^,]*,\"internal_score\":[^,]*,\"age\":[^}]*\\}")'
+
+  - type: log
+    message: "=== select on JSON file source: SUCCESS ==="

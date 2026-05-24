@@ -504,6 +504,7 @@ func (fs *BaseFileSysClient) GetDatastream(uri string, cfg ...iop.FileStreamConf
 	ds.SetMetadata(fs.GetProp("METADATA"))
 	ds.Metadata.StreamURL.Value = uri
 	ds.SetConfig(fs.Props())
+	ds.Sp.Config.Select = Cfg.Select
 
 	if Cfg.Format == dbio.FileTypeNone {
 		Cfg.Format = InferFileFormat(uri)
@@ -1181,8 +1182,8 @@ func GetDataflow(fs FileSysClient, nodes FileNodes, cfg iop.FileStreamConfig) (d
 		allowMerging := strings.ToLower(os.Getenv("SLING_MERGE_READERS")) != "false" && !cfg.ShouldUseDuckDB()
 
 		pushDatastream := func(ds *iop.Datastream) {
-			// use selected fields only when not parquet
-			skipSelect := g.In(cfg.Format, dbio.FileTypeParquet, dbio.FileTypeIceberg, dbio.FileTypeDelta) || cfg.ShouldUseDuckDB()
+			// JSON-family formats apply `select` upstream in the jsonStream
+			skipSelect := g.In(cfg.Format, dbio.FileTypeParquet, dbio.FileTypeIceberg, dbio.FileTypeDelta, dbio.FileTypeJson, dbio.FileTypeJsonLines, dbio.FileTypeGeojson, dbio.FileTypeXml) || cfg.ShouldUseDuckDB()
 			if len(cfg.Select) > 1 && !skipSelect {
 				cols := iop.NewColumnsFromFields(cfg.Select...)
 				fm := ds.Columns.FieldMap(true)
@@ -1662,6 +1663,7 @@ func MergeReaders(fs FileSysClient, fileType dbio.FileType, nodes FileNodes, cfg
 	ds.SetMetadata(fs.GetProp("METADATA"))
 	ds.Metadata.StreamURL.Value = url
 	ds.SetConfig(fs.Client().Props())
+	ds.Sp.Config.Select = cfg.Select
 	g.Debug("reading single datastream from %s [format=%s]", url, fileType)
 
 	setError := func(err error) {

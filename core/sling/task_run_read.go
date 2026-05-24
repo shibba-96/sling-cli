@@ -56,15 +56,17 @@ func (t *TaskExecution) ReadFromDB(cfg *Config, srcConn database.Connection) (df
 	cfg.Source.table = sTable
 
 	if len(cfg.Source.Select) > 0 {
-		selectFields = lo.Map(cfg.Source.Select, func(f string, i int) string {
-			// Parse the expression to extract original column name
+		// Normalize select expressions
+		rawSelect := lo.Map(cfg.Source.Select, func(f string, i int) string {
 			original, alias, isExclude, _ := iop.ParseSelectExpr(f)
-
 			if isExclude {
-				return f // Pass through exclusion as-is for later handling
+				return f // exclusions handled by ApplySelect / exclude-only path
 			}
-
-			// Lookup the original column (for case correction)
+			// Pass through `*` and globs untouched so ApplySelect can expand.
+			if original == "*" || strings.Contains(original, "*") {
+				return f
+			}
+			// Lookup the original column for case correction.
 			col := sTable.Columns.GetColumn(srcConn.Unquote(original))
 			if col != nil {
 				if alias != "" {
@@ -79,11 +81,8 @@ func (t *TaskExecution) ReadFromDB(cfg *Config, srcConn database.Connection) (df
 			return strings.HasPrefix(f, "-")
 		})
 
-		if len(excluded) > 0 {
-			if len(excluded) != len(cfg.Source.Select) {
-				return t.df, g.Error("All specified select columns must be excluded with prefix '-'. Cannot do partial exclude.")
-			}
-
+		if len(excluded) == len(cfg.Source.Select) && len(excluded) > 0 {
+			// exclude-only select: emit all source columns minus excluded
 			includedCols := lo.Filter(sTable.Columns, func(c iop.Column, i int) bool {
 				colNameLower := strings.ToLower(c.Name)
 				for _, exField := range excluded {
@@ -101,6 +100,41 @@ func (t *TaskExecution) ReadFromDB(cfg *Config, srcConn database.Connection) (df
 				return t.df, g.Error("All available columns were excluded")
 			}
 			selectFields = iop.Columns(includedCols).Names()
+		} else if len(excluded) > 0 && len(excluded) != len(cfg.Source.Select) {
+			// mixed include/exclude was historically rejected.
+			hasWildcardInclude := false
+			for _, expr := range cfg.Source.Select {
+				if strings.HasPrefix(expr, "-") {
+					continue
+				}
+				field, _, _, _ := iop.ParseSelectExpr(expr)
+				if field == "*" || strings.Contains(field, "*") {
+					hasWildcardInclude = true
+					break
+				}
+			}
+			if !hasWildcardInclude {
+				return t.df, g.Error("All specified select columns must be excluded with prefix '-'. Cannot do partial exclude.")
+			}
+			// expand against the source column list to get the final list
+			expanded, expErr := iop.ApplySelectExprs(iop.Columns(sTable.Columns).Names(), rawSelect)
+			if expErr != nil {
+				return t.df, g.Error(expErr, "could not apply select")
+			}
+			if len(expanded) == 0 {
+				return t.df, g.Error("select expression produced no columns")
+			}
+			selectFields = expanded
+		} else {
+			// include-only (with or without `*`/globs).
+			expanded, expErr := iop.ApplySelectExprs(iop.Columns(sTable.Columns).Names(), rawSelect)
+			if expErr != nil {
+				return t.df, g.Error(expErr, "could not apply select")
+			}
+			if len(expanded) == 0 {
+				return t.df, g.Error("select expression produced no columns")
+			}
+			selectFields = expanded
 		}
 	}
 

@@ -955,3 +955,149 @@
       active: null
   expected_state: {}
 
+# id: 20 - records.select with an explicit list narrows the output columns.
+# Only the listed columns survive, in the order listed. Uses mock_response_raw
+# so the response body keeps the author-written key order (a map-based mock
+# would be alphabetized by the JSON encoder).
+- id: 20
+  name: select_explicit_list_narrows_columns
+  mock_response_raw: |
+    [
+      {"id":1,"name":"Alice","email":"alice@example.com","age":30,"internal_score":99},
+      {"id":2,"name":"Bob","email":"bob@example.com","age":25,"internal_score":42}
+    ]
+  spec:
+    name: test_api
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        name: test_endpoint
+        response:
+          records:
+            jmespath: "@"
+            select:
+              - id
+              - name
+  expected_columns: [id, name]
+  expected_records:
+    - id: "1"
+      name: Alice
+    - id: "2"
+      name: Bob
+  expected_state: {}
+
+# id: 21 - records.select with exclusion globs drops matching columns while
+# keeping everything else in source order via implicit `*`.
+- id: 21
+  name: select_exclude_glob_drops_matching_columns
+  mock_response_raw: |
+    [
+      {"id":1,"name":"Alice","email":"alice@example.com","internal_score":99,"internal_flag":true},
+      {"id":2,"name":"Bob","email":"bob@example.com","internal_score":42,"internal_flag":false}
+    ]
+  spec:
+    name: test_api
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        name: test_endpoint
+        response:
+          records:
+            jmespath: "@"
+            select:
+              - "-internal_*"
+  expected_columns: [id, name, email]
+  expected_records:
+    - id: "1"
+      name: Alice
+      email: alice@example.com
+    - id: "2"
+      name: Bob
+      email: bob@example.com
+  expected_state: {}
+
+# id: 22 - records.select rename: `id as uid` renames the column; other
+# listed columns keep their names. Output order follows the select list.
+- id: 22
+  name: select_rename_with_explicit_list
+  mock_response_raw: |
+    [
+      {"id":1,"name":"Alice","email":"alice@example.com"},
+      {"id":2,"name":"Bob","email":"bob@example.com"}
+    ]
+  spec:
+    name: test_api
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        name: test_endpoint
+        response:
+          records:
+            jmespath: "@"
+            select:
+              - id as uid
+              - name
+              - email
+  expected_columns: [uid, name, email]
+  expected_records:
+    - uid: "1"
+      name: Alice
+      email: alice@example.com
+    - uid: "2"
+      name: Bob
+      email: bob@example.com
+  expected_state: {}
+
+# id: 23 - records.select reorder: front-pins `id` and `name`, `*` expands
+# to the remaining source columns in place, and `created_at`/`updated_at`
+# pin to the back. This is the column-reorder regression guard —
+# firstObjectKeysInOrder recovers the source order from raw bytes.
+- id: 23
+  name: select_reorder_front_star_back_pins
+  mock_response_raw: |
+    [
+      {"extra_b":"B1","created_at":"2025-01-10","extra_a":"A1","name":"Alice","id":1,"updated_at":"2025-01-11","email":"alice@example.com"},
+      {"extra_b":"B2","created_at":"2025-01-12","extra_a":"A2","name":"Bob","id":2,"updated_at":"2025-01-13","email":"bob@example.com"}
+    ]
+  spec:
+    name: test_api
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        name: test_endpoint
+        response:
+          records:
+            jmespath: "@"
+            select:
+              - id
+              - name
+              - "*"
+              - created_at
+              - updated_at
+  # Source order of the first record is: extra_b, created_at, extra_a, name,
+  # id, updated_at, email. With select [id, name, *, created_at, updated_at]:
+  # `id` and `name` pin to the front; `*` expands to remaining source columns
+  # in source order minus pins → extra_b, extra_a, email; `created_at` and
+  # `updated_at` pin to the back.
+  expected_columns: [id, name, extra_b, extra_a, email, created_at, updated_at]
+  expected_records:
+    - id: "1"
+      name: Alice
+      extra_b: B1
+      extra_a: A1
+      email: alice@example.com
+      created_at: "2025-01-10"
+      updated_at: "2025-01-11"
+    - id: "2"
+      name: Bob
+      extra_b: B2
+      extra_a: A2
+      email: bob@example.com
+      created_at: "2025-01-12"
+      updated_at: "2025-01-13"
+  expected_state: {}
+

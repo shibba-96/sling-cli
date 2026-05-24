@@ -1,8 +1,8 @@
 package iop
 
 import (
+	"bytes"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"reflect"
 	"sort"
@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/flarco/g"
+	"github.com/flarco/g/json"
 	"github.com/itchyny/gojq"
 	"github.com/jmespath/go-jmespath"
 	"github.com/nqd/flat"
@@ -32,19 +33,31 @@ type jsonStream struct {
 	jq       string
 	flatten  int
 	buffer   chan []any
+	selector *Selector
+
+	// post-select column order; seeded from raw bytes by NextFunc or from
+	// an external producer via SetOrderedKeys (1-buffered, first-write-wins).
+	OrderedKeys   []string
+	orderedKeysCh chan []string
 }
 
 func NewJSONStream(ds *Datastream, decoder decoderLike, flatten int, jmespath string, jq string) *jsonStream {
 	js := &jsonStream{
-		ColumnMap: map[string]*Column{},
-		ds:        ds,
-		decoder:   decoder,
-		flatten:   flatten,
-		jmespath:  jmespath,
-		jq:        jq,
-		buffer:    make(chan []any, 100000),
-		sp:        NewStreamProcessor(),
+		ColumnMap:     map[string]*Column{},
+		ds:            ds,
+		decoder:       decoder,
+		flatten:       flatten,
+		jmespath:      jmespath,
+		jq:            jq,
+		buffer:        make(chan []any, 100000),
+		sp:            NewStreamProcessor(),
+		orderedKeysCh: make(chan []string, 1),
 	}
+
+	if ds != nil && ds.Sp != nil && flatten >= 0 && len(ds.Sp.Config.Select) > 0 {
+		js.selector = NewSelector(ds.Sp.Config.Select, ds.Sp.Config.ColumnCasing)
+	}
+
 	if flatten < 0 {
 		col := &Column{Position: 1, Name: "data", Type: JsonType, FileURI: cast.ToString(js.ds.Metadata.StreamURL.Value)}
 		js.ColumnMap[col.Name] = col
@@ -58,6 +71,18 @@ func NewJSONStream(ds *Datastream, decoder decoderLike, flatten int, jmespath st
 	}
 
 	return js
+}
+
+// SetOrderedKeys publishes the post-select column order. First call wins;
+// subsequent calls are dropped (the channel is 1-buffered).
+func (js *jsonStream) SetOrderedKeys(keys []string) {
+	if js == nil || js.orderedKeysCh == nil {
+		return
+	}
+	select {
+	case js.orderedKeysCh <- keys:
+	default:
+	}
 }
 
 func (js *jsonStream) NextFunc(it *Iterator) bool {
@@ -74,8 +99,23 @@ func (js *jsonStream) NextFunc(it *Iterator) bool {
 	default:
 	}
 
+	// Peek the raw bytes of the top-level value when the decoder is a stock
+	// *json.Decoder, so selector-driven `*` expansion can use source key
+	// order. The API path uses SetOrderedKeys instead (its per-record JSON
+	// is alphabetized at the pipe boundary). Skip when jmespath/jq is set —
+	// those run on the parsed payload, which may reshape keys.
 	var payload any
-	if js.HasMapPayload {
+	var raw json.RawMessage
+	canPeek := js.selector != nil && len(js.OrderedKeys) == 0 && js.jmespath == "" && js.jq == ""
+	if canPeek {
+		if _, ok := js.decoder.(*json.Decoder); !ok {
+			canPeek = false
+		}
+	}
+
+	if canPeek {
+		err = js.decoder.Decode(&raw)
+	} else if js.HasMapPayload {
 		m := g.M()
 		err = js.decoder.Decode(&m)
 		payload = m
@@ -88,6 +128,37 @@ func (js *jsonStream) NextFunc(it *Iterator) bool {
 	} else if err != nil {
 		it.Context.CaptureErr(g.Error(err, "could not decode JSON body"))
 		return false
+	}
+
+	// The producer (if any) publishes before writing to the pipe, so the
+	// channel is guaranteed populated by the time Decode returns.
+	if len(js.OrderedKeys) == 0 {
+		select {
+		case keys := <-js.orderedKeysCh:
+			js.OrderedKeys = keys
+		default:
+		}
+	}
+
+	if canPeek {
+		if len(js.OrderedKeys) == 0 {
+			if sourceKeys, _ := FirstObjectKeysInOrder(raw); len(sourceKeys) > 0 {
+				js.OrderedKeys = js.selector.OrderFields(sourceKeys)
+			}
+		}
+		if js.HasMapPayload {
+			m := g.M()
+			if err = json.Unmarshal(raw, &m); err != nil {
+				it.Context.CaptureErr(g.Error(err, "could not decode JSON body"))
+				return false
+			}
+			payload = m
+		} else {
+			if err = json.Unmarshal(raw, &payload); err != nil {
+				it.Context.CaptureErr(g.Error(err, "could not decode JSON body"))
+				return false
+			}
+		}
 	}
 
 	if js.jmespath != "" {
@@ -184,6 +255,43 @@ func (js *jsonStream) NextFunc(it *Iterator) bool {
 	}
 }
 
+// orderKeys returns rec's keys in OrderedKeys order (case-insensitive),
+// then remaining keys alphabetically. Pure alphabetical if OrderedKeys empty.
+func (js *jsonStream) orderKeys(rec map[string]any) []string {
+	if len(js.OrderedKeys) == 0 {
+		keys := lo.Keys(rec)
+		sort.Strings(keys)
+		return keys
+	}
+
+	keys := make([]string, 0, len(rec))
+	seen := make(map[string]struct{}, len(rec))
+	available := make(map[string]string, len(rec))
+	for k := range rec {
+		available[strings.ToLower(k)] = k
+	}
+	for _, k := range js.OrderedKeys {
+		actual, ok := available[strings.ToLower(k)]
+		if !ok {
+			continue
+		}
+		if _, dup := seen[actual]; dup {
+			continue
+		}
+		seen[actual] = struct{}{}
+		keys = append(keys, actual)
+	}
+	remaining := make([]string, 0, len(rec))
+	for k := range rec {
+		if _, done := seen[k]; done {
+			continue
+		}
+		remaining = append(remaining, k)
+	}
+	sort.Strings(remaining)
+	return append(keys, remaining...)
+}
+
 func (js *jsonStream) addColumn(cols ...Column) {
 	mux := js.ds.Context.Mux
 	if df := js.ds.Df(); df != nil {
@@ -208,15 +316,35 @@ func (js *jsonStream) parseRecords(records []map[string]any) {
 		}
 
 		newRec, _ := flat.Flatten(rec, &flat.Options{Delimiter: "__", Safe: true, MaxDepth: js.flatten})
-		keys := lo.Keys(newRec)
-		sort.Strings(keys)
+
+		// Filter + rename per record. Output order is OrderedKeys (seeded
+		// earlier from raw bytes); the fallback uses alphabetized pre-rename
+		// keys so OrderFields can still resolve renames + pins.
+		if js.selector != nil {
+			var sourceKeys []string
+			if len(js.OrderedKeys) == 0 {
+				sourceKeys = lo.Keys(newRec)
+				sort.Strings(sourceKeys)
+			}
+			renamed := make(map[string]any, len(newRec))
+			for name, val := range newRec {
+				if newName, include := js.selector.Apply(name); include {
+					renamed[newName] = val
+				}
+			}
+			newRec = renamed
+			if sourceKeys != nil {
+				js.OrderedKeys = js.selector.OrderFields(sourceKeys)
+			}
+		}
+
+		keys := js.orderKeys(newRec)
 
 		row := make([]any, len(js.ds.Columns))
 		colsToAdd := Columns{}
 		for _, colName := range keys {
-			// cast arrays as string
 			if arr, ok := newRec[colName].([]any); ok {
-				newRec[colName] = g.Marshal(arr)
+				newRec[colName] = g.Marshal(arr) // arrays serialize to string
 			}
 
 			col, ok := js.ColumnMap[colName]
@@ -246,7 +374,6 @@ func (js *jsonStream) parseRecords(records []map[string]any) {
 
 		js.buffer <- row
 	}
-	// g.Debug("JSON Stream -> Parsed %d records", len(records))
 }
 
 func (js *jsonStream) extractNestedArray(rec map[string]any) (recordsInterf []map[string]any) {
@@ -324,26 +451,22 @@ func (js *jsonStream) extractNestedArray(rec map[string]any) (recordsInterf []ma
 	return recordsInterf
 }
 
-// DecodeJSONIfBase64 detects if the json body is base64-encoded and decodes them
+// DecodeJSONIfBase64 returns jsonBody as-is when it's already valid JSON,
+// otherwise tries base64-decode and returns the decoded JSON. Falls back to
+// the original on any failure (malformed JSON passes through unchanged).
 func DecodeJSONIfBase64(jsonBody string) (string, error) {
-	// First check if it's already valid JSON
 	if json.Valid([]byte(jsonBody)) {
 		return jsonBody, nil
 	}
 
-	// Try to decode as base64
 	decoded, err := base64.StdEncoding.DecodeString(jsonBody)
 	if err != nil {
-		// If base64 decode fails, return original (might be malformed JSON)
 		return jsonBody, nil
 	}
 
-	// Verify the decoded content is valid JSON
 	if json.Valid(decoded) {
 		return string(decoded), nil
 	}
-
-	// If decoded content is not valid JSON, return original
 	return jsonBody, nil
 }
 
@@ -398,4 +521,43 @@ func JqRun(expr string, input any) ([]any, error) {
 		results = append(results, v)
 	}
 	return results, nil
+}
+
+// FirstObjectKeysInOrder returns the source-order keys of the first
+// top-level object (or the first array element). Recovers what
+// json.Unmarshal into map[string]any loses. Returns nil for non-object roots.
+func FirstObjectKeysInOrder(b []byte) ([]string, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	if d, ok := tok.(json.Delim); ok && d == '[' {
+		tok, err = dec.Token()
+		if err != nil {
+			return nil, err
+		}
+	}
+	d, ok := tok.(json.Delim)
+	if !ok || d != '{' {
+		return nil, nil
+	}
+	keys := []string{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return keys, err
+		}
+		name, ok := t.(string)
+		if !ok {
+			return keys, nil
+		}
+		keys = append(keys, name)
+		// Decode consumes the value so the next Token() lands on the next key.
+		var v any
+		if err := dec.Decode(&v); err != nil {
+			return keys, err
+		}
+	}
+	return keys, nil
 }

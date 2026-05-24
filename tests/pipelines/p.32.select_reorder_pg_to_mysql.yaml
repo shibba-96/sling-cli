@@ -1,0 +1,190 @@
+# Verifies `select` for DB sources both narrows AND reorders columns
+# (Postgres → MySQL). Each case introspects MySQL's catalog to assert
+# the target column order matches what `select` asked for.
+
+env:
+  PG_SCHEMA: public
+  PG_TABLE: sling_test_select_reorder_src
+  MYSQL_SCHEMA: mysql
+
+steps:
+  - type: log
+    message: "=== select reorder PG → MySQL: starting ==="
+
+  # Source: 8 columns in a deliberately non-alphabetical order so we
+  # can tell source-order from target-order from list-order.
+  - id: setup_src
+    connection: POSTGRES
+    query: |
+      DROP TABLE IF EXISTS {env.PG_SCHEMA}.{env.PG_TABLE} CASCADE;
+      CREATE TABLE {env.PG_SCHEMA}.{env.PG_TABLE} (
+        id          INT PRIMARY KEY,
+        company_id  INT,
+        first_name  VARCHAR(50),
+        last_name   VARCHAR(50),
+        pre_score   NUMERIC(10,2),
+        score_post  NUMERIC(10,2),
+        created_at  TIMESTAMP,
+        updated_at  TIMESTAMP
+      );
+      INSERT INTO {env.PG_SCHEMA}.{env.PG_TABLE} VALUES
+        (1, 100, 'Alice', 'Smith', 1.5, 2.5, '2024-01-01 00:00:00', '2024-01-02 00:00:00'),
+        (2, 200, 'Bob',   'Jones', 3.5, 4.5, '2024-02-01 00:00:00', '2024-02-02 00:00:00');
+
+  - id: cleanup_tgt
+    connection: MYSQL
+    query: |
+      DROP TABLE IF EXISTS {env.MYSQL_SCHEMA}.sling_reorder_case1;
+      DROP TABLE IF EXISTS {env.MYSQL_SCHEMA}.sling_reorder_case2;
+      DROP TABLE IF EXISTS {env.MYSQL_SCHEMA}.sling_reorder_case3;
+      DROP TABLE IF EXISTS {env.MYSQL_SCHEMA}.sling_reorder_case4;
+
+  # Case 1: explicit-only list — narrow to 3 cols in list order.
+  - id: case1_replicate
+    replication:
+      source: POSTGRES
+      target: MYSQL
+      defaults:
+        mode: full-refresh
+      streams:
+        "{env.PG_SCHEMA}.{env.PG_TABLE}":
+          object: "{env.MYSQL_SCHEMA}.sling_reorder_case1"
+          select:
+            - id
+            - company_id
+            - first_name
+
+  - id: case1_cols
+    connection: MYSQL
+    query: |
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = '{env.MYSQL_SCHEMA}'
+        AND table_name = 'sling_reorder_case1'
+      ORDER BY ordinal_position
+    into: case1_cols
+
+  - type: log
+    message: 'case1 columns: {join(pluck(store.case1_cols, "column_name"), ",")}'
+
+  - type: check
+    check: 'join(pluck(store.case1_cols, "column_name"), ",") == "id,company_id,first_name"'
+    failure_message: 'case1: expected id,company_id,first_name; got {join(pluck(store.case1_cols, "column_name"), ",")}'
+
+  # Case 2: front pins + `*` — pins land first, `*` fills rest in source order.
+  - id: case2_replicate
+    replication:
+      source: POSTGRES
+      target: MYSQL
+      defaults:
+        mode: full-refresh
+      streams:
+        "{env.PG_SCHEMA}.{env.PG_TABLE}":
+          object: "{env.MYSQL_SCHEMA}.sling_reorder_case2"
+          select:
+            - last_name
+            - id
+            - "*"
+
+  - id: case2_cols
+    connection: MYSQL
+    query: |
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = '{env.MYSQL_SCHEMA}'
+        AND table_name = 'sling_reorder_case2'
+      ORDER BY ordinal_position
+    into: case2_cols
+
+  - type: log
+    message: 'case2 columns: {join(pluck(store.case2_cols, "column_name"), ",")}'
+
+  - type: check
+    check: 'join(pluck(store.case2_cols, "column_name"), ",") == "last_name,id,company_id,first_name,pre_score,score_post,created_at,updated_at"'
+    failure_message: 'case2: expected last_name,id,<rest>; got {join(pluck(store.case2_cols, "column_name"), ",")}'
+
+  # Case 3: front pin + globs in place + `*` + back pin.
+  - id: case3_replicate
+    replication:
+      source: POSTGRES
+      target: MYSQL
+      defaults:
+        mode: full-refresh
+      streams:
+        "{env.PG_SCHEMA}.{env.PG_TABLE}":
+          object: "{env.MYSQL_SCHEMA}.sling_reorder_case3"
+          select:
+            - id
+            - "pre_*"
+            - "*_post"
+            - "*"
+            - updated_at
+
+  - id: case3_cols
+    connection: MYSQL
+    query: |
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = '{env.MYSQL_SCHEMA}'
+        AND table_name = 'sling_reorder_case3'
+      ORDER BY ordinal_position
+    into: case3_cols
+
+  - type: log
+    message: 'case3 columns: {join(pluck(store.case3_cols, "column_name"), ",")}'
+
+  - type: check
+    check: 'join(pluck(store.case3_cols, "column_name"), ",") == "id,pre_score,score_post,company_id,first_name,last_name,created_at,updated_at"'
+    failure_message: 'case3: glob-in-place + back-pin wrong; got {join(pluck(store.case3_cols, "column_name"), ",")}'
+
+  # Case 4: rename + `*` — rename keeps source position (not pinned to end).
+  - id: case4_replicate
+    replication:
+      source: POSTGRES
+      target: MYSQL
+      defaults:
+        mode: full-refresh
+      streams:
+        "{env.PG_SCHEMA}.{env.PG_TABLE}":
+          object: "{env.MYSQL_SCHEMA}.sling_reorder_case4"
+          select:
+            - "*"
+            - "first_name as fname"
+
+  - id: case4_cols
+    connection: MYSQL
+    query: |
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = '{env.MYSQL_SCHEMA}'
+        AND table_name = 'sling_reorder_case4'
+      ORDER BY ordinal_position
+    into: case4_cols
+
+  - type: log
+    message: 'case4 columns: {join(pluck(store.case4_cols, "column_name"), ",")}'
+
+  - type: check
+    check: 'join(pluck(store.case4_cols, "column_name"), ",") == "id,company_id,fname,last_name,pre_score,score_post,created_at,updated_at"'
+    failure_message: 'case4: rename should keep source position; got {join(pluck(store.case4_cols, "column_name"), ",")}'
+
+  # Row-count sanity (data integrity, not just column order).
+  - id: case2_count
+    connection: MYSQL
+    query: SELECT COUNT(*) AS n FROM {env.MYSQL_SCHEMA}.sling_reorder_case2
+    into: case2_count
+
+  - type: check
+    check: 'int_parse(store.case2_count[0].n) == 2'
+    failure_message: "case2: expected 2 rows, got {store.case2_count[0].n}"
+
+  - id: cleanup_src
+    connection: POSTGRES
+    query: DROP TABLE IF EXISTS {env.PG_SCHEMA}.{env.PG_TABLE} CASCADE;
+
+  - id: cleanup_tgt_final
+    connection: MYSQL
+    query: |
+      DROP TABLE IF EXISTS {env.MYSQL_SCHEMA}.sling_reorder_case1;
+      DROP TABLE IF EXISTS {env.MYSQL_SCHEMA}.sling_reorder_case2;
+      DROP TABLE IF EXISTS {env.MYSQL_SCHEMA}.sling_reorder_case3;
+      DROP TABLE IF EXISTS {env.MYSQL_SCHEMA}.sling_reorder_case4;
+
+  - type: log
+    message: "=== select reorder PG → MySQL: SUCCESS ==="

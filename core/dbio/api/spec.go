@@ -354,6 +354,12 @@ type Endpoint struct {
 	appendSetup     Sequence `yaml:"-" json:"-"`
 	prependTeardown Sequence `yaml:"-" json:"-"`
 	appendTeardown  Sequence `yaml:"-" json:"-"`
+
+	js jsonStream `yaml:"-" json:"-"`
+}
+
+type jsonStream interface {
+	SetOrderedKeys(keys []string) // to maintain column order
 }
 
 func (ep *Endpoint) SetStateVal(key string, val any) {

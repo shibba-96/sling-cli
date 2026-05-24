@@ -2288,3 +2288,15 @@
   output_contains:
     - 'API select-columns pipeline passed'
     - 'execution succeeded'
+
+- id: 239
+  name: 'select narrows AND reorders columns end-to-end (Postgres → MySQL)'
+  run: 'sling run -d -p tests/pipelines/p.32.select_reorder_pg_to_mysql.yaml'
+  output_contains:
+    - 'select reorder PG → MySQL: SUCCESS'
+      
+- id: 240
+  name: 'select on JSON file source'
+  run: 'sling run -d -p tests/pipelines/p.33.select_json_file_source.yaml'
+  output_contains:
+    - 'select on JSON file source: SUCCESS'

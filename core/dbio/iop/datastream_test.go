@@ -1,6 +1,7 @@
 package iop
 
 import (
+	"encoding/json"
 	"io"
 	"testing"
 
@@ -59,6 +60,132 @@ func TestBW(t *testing.T) {
 			if safeBytes != cast.ToUint64(tt.expected) {
 				t.Errorf("Expected %d bytes for %s, got %d",
 					tt.expected, tt.name, safeBytes)
+			}
+		})
+	}
+}
+
+func TestEncodeRowAsJSONObject(t *testing.T) {
+	stringCol := func(name string) Column { return Column{Name: name, Type: StringType} }
+	jsonCol := func(name string) Column { return Column{Name: name, Type: JsonType} }
+
+	tests := []struct {
+		name    string
+		row     []any
+		columns Columns
+		want    string
+		wantErr bool
+	}{
+		{
+			name:    "empty row produces empty object",
+			row:     []any{},
+			columns: Columns{},
+			want:    `{}`,
+		},
+		{
+			name:    "single field",
+			row:     []any{42},
+			columns: Columns{stringCol("id")},
+			want:    `{"id":42}`,
+		},
+		{
+			name:    "multiple fields preserve column order (not alphabetical)",
+			row:     []any{1, "alice", true},
+			columns: Columns{stringCol("zeta"), stringCol("alpha"), stringCol("mu")},
+			want:    `{"zeta":1,"alpha":"alice","mu":true}`,
+		},
+		{
+			name:    "nil values render as JSON null",
+			row:     []any{nil, "x", nil},
+			columns: Columns{stringCol("a"), stringCol("b"), stringCol("c")},
+			want:    `{"a":null,"b":"x","c":null}`,
+		},
+		{
+			name:    "JSON-typed column with valid JSON object string is inlined",
+			row:     []any{`{"k":1}`},
+			columns: Columns{jsonCol("payload")},
+			want:    `{"payload":{"k":1}}`,
+		},
+		{
+			name:    "JSON-typed column with valid JSON array string is inlined",
+			row:     []any{`[1,2,3]`},
+			columns: Columns{jsonCol("payload")},
+			want:    `{"payload":[1,2,3]}`,
+		},
+		{
+			name:    "JSON-typed column with literal 'null' string becomes JSON null",
+			row:     []any{"null"},
+			columns: Columns{jsonCol("payload")},
+			want:    `{"payload":null}`,
+		},
+		{
+			name:    "JSON-typed column with non-JSON-looking string stays quoted",
+			row:     []any{"hello"},
+			columns: Columns{jsonCol("payload")},
+			want:    `{"payload":"hello"}`,
+		},
+		{
+			name:    "JSON-typed column with malformed JSON-looking string stays quoted",
+			row:     []any{"{not-json"},
+			columns: Columns{jsonCol("payload")},
+			want:    `{"payload":"{not-json"}`,
+		},
+		{
+			name:    "string-typed column with JSON-looking string stays quoted (no inlining)",
+			row:     []any{`{"k":1}`},
+			columns: Columns{stringCol("payload")},
+			want:    `{"payload":"{\"k\":1}"}`,
+		},
+		{
+			name:    "column names with special characters are escaped",
+			row:     []any{1, 2},
+			columns: Columns{stringCol(`a"b`), stringCol("c\nd")},
+			want:    `{"a\"b":1,"c\nd":2}`,
+		},
+		{
+			name:    "values with special characters are escaped",
+			row:     []any{`he said "hi"` + "\n"},
+			columns: Columns{stringCol("msg")},
+			want:    `{"msg":"he said \"hi\"\n"}`,
+		},
+		{
+			name:    "row longer than columns is truncated",
+			row:     []any{1, 2, 3, 4},
+			columns: Columns{stringCol("a"), stringCol("b")},
+			want:    `{"a":1,"b":2}`,
+		},
+		{
+			name:    "row shorter than columns stops at row length",
+			row:     []any{1},
+			columns: Columns{stringCol("a"), stringCol("b")},
+			want:    `{"a":1}`,
+		},
+		{
+			name:    "mixed JSON and scalar columns keep declared order",
+			row:     []any{1, `{"nested":true}`, "tail"},
+			columns: Columns{stringCol("id"), jsonCol("meta"), stringCol("tag")},
+			want:    `{"id":1,"meta":{"nested":true},"tag":"tail"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := encodeRowAsJSONObject(tt.row, tt.columns)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got none; output=%s", string(got))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("output mismatch\n  got:  %s\n  want: %s", string(got), tt.want)
+			}
+			// Belt-and-suspenders: every successful result must be valid JSON.
+			if !json.Valid(got) {
+				t.Fatalf("output is not valid JSON: %s", string(got))
 			}
 		})
 	}

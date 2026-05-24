@@ -2370,6 +2370,47 @@ func (ds *Datastream) NewCsvReaderChnl(sc StreamConfig) (readerChn chan *BatchRe
 	return readerChn
 }
 
+// encodeRowAsJSONObject serializes a row as a JSON object with keys in
+// columns order. Using map+json.Marshal would sort keys alphabetically
+// and undo any column ordering chosen via `select`. JSON-typed string
+// values are decoded so they appear as nested JSON, not quoted strings.
+func encodeRowAsJSONObject(row []any, columns Columns) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, val := range row {
+		if i >= len(columns) {
+			break
+		}
+		name := columns[i].Name
+		if sVal, ok := val.(string); ok && columns[i].Type.IsJSON() {
+			if looksLikeJson(sVal) {
+				var v any
+				if err := g.Unmarshal(sVal, &v); err == nil {
+					val = v
+				}
+			} else if sVal == "null" {
+				val = nil
+			}
+		}
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		keyJSON, err := json.Marshal(name)
+		if err != nil {
+			return nil, g.Error(err, "error marshaling key %s", name)
+		}
+		buf.Write(keyJSON)
+		buf.WriteByte(':')
+		valJSON, err := json.Marshal(val)
+		if err != nil {
+			return nil, g.Error(err, "error marshaling value for %s", name)
+		}
+		buf.Write(valJSON)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
 func (ds *Datastream) NewJsonReaderChnl(sc StreamConfig) (readerChn chan *io.PipeReader) {
 	readerChn = make(chan *io.PipeReader, 100)
 
@@ -2388,27 +2429,10 @@ func (ds *Datastream) NewJsonReaderChnl(sc StreamConfig) (readerChn chan *io.Pip
 		tbw = tbw + cast.ToInt64(bw)
 
 		for batch := range ds.BatchChan {
-			fields := batch.Columns.Names()
-
 			for row0 := range batch.Rows {
 				c++
 
-				rec := g.M()
-				for i, val := range row0 {
-					if sVal, ok := val.(string); ok && batch.Columns[i].Type.IsJSON() {
-						if looksLikeJson(sVal) {
-							var v any
-							if err := g.Unmarshal(sVal, &v); err == nil {
-								val = v
-							}
-						} else if sVal == "null" {
-							val = nil
-						}
-					}
-					rec[fields[i]] = val
-				}
-
-				b, err := json.Marshal(rec)
+				b, err := encodeRowAsJSONObject(row0, batch.Columns)
 				if err != nil {
 					ds.Context.CaptureErr(g.Error(err, "error marshaling rec"))
 					ds.Context.Cancel()
@@ -2653,27 +2677,10 @@ func (ds *Datastream) NewJsonLinesReaderChnl(sc StreamConfig) (readerChn chan *i
 		c := int64(0) // local counter
 
 		for batch := range ds.BatchChan {
-			fields := batch.Columns.Names()
-
 			for row0 := range batch.Rows {
 				c++
 
-				rec := g.M()
-				for i, val := range row0 {
-					if sVal, ok := val.(string); ok && batch.Columns[i].Type.IsJSON() {
-						if looksLikeJson(sVal) {
-							var v any
-							if err := g.Unmarshal(sVal, &v); err == nil {
-								val = v
-							}
-						} else if sVal == "null" {
-							val = nil
-						}
-					}
-					rec[fields[i]] = val
-				}
-
-				b, err := json.Marshal(rec)
+				b, err := encodeRowAsJSONObject(row0, batch.Columns)
 				if err != nil {
 					ds.Context.CaptureErr(g.Error(err, "error marshaling rec"))
 					ds.Context.Cancel()
