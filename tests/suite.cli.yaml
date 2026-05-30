@@ -1250,7 +1250,7 @@
   name: 'Test {fields} placeholder with select parameter (issue #669)'
   run: 'sling run -d -r tests/replications/r.75.fields_placeholder_select.yaml'
   output_contains:
-    - SELECT "id", "name"
+    - SELECT "id", "name", null as null_col, 0 as num_col, true as bool_col
 
 - id: 142
   name: 'Test columns casting to string for DDL (issue #651)'

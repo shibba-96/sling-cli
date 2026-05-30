@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -316,10 +317,43 @@ func (t *Table) Select(Opts ...SelectOptions) (sql string) {
 	whereClause := lo.Ternary(opts.Where != "", g.F(" where (%s)", opts.Where), "")
 	whereAnd := lo.Ternary(opts.Where != "", g.F(" and (%s)", opts.Where), "")
 
+	shouldQuote := func(f string) bool {
+		f = strings.TrimSpace(f)
+
+		switch {
+		case strings.Contains(f, "(") || strings.EqualFold(f, "null"):
+			return false
+		case strings.EqualFold(f, "false") || strings.EqualFold(f, "true"):
+			return false
+		case strings.Contains(f, "'"):
+			// string literal (e.g. 'N/A' as status)
+			return false
+		case strings.HasPrefix(f, GetQualifierQuote(t.Dialect)):
+			// already quoted identifier
+			return false
+		case g.In(strings.ToLower(f),
+			"current_date", "current_timestamp", "current_time", "now",
+			"current_user", "session_user", "localtime", "localtimestamp", "default"):
+			// bare keyword expressions (no parens)
+			return false
+		case strings.HasPrefix(strings.ToLower(f), "case "):
+			// CASE ... END expression
+			return false
+		case strings.Contains(f, "::"):
+			// cast shorthand (e.g. 0::int)
+			return false
+		}
+		// check if number
+		if _, parseNumErr := strconv.ParseFloat(f, 64); parseNumErr == nil {
+			return false
+		}
+		return true
+	}
+
 	fields = lo.Map(fields, func(f string, i int) string {
 		q := GetQualifierQuote(t.Dialect)
 		f = strings.TrimSpace(f)
-		if f == "*" || strings.Contains(f, "(") {
+		if f == "*" || !shouldQuote(f) {
 			return f
 		}
 
@@ -329,6 +363,11 @@ func (t *Table) Select(Opts ...SelectOptions) (sql string) {
 			// Generate: "original_col" AS "alias_name"
 			origQuoted := q + strings.ReplaceAll(original, q, "") + q
 			aliasQuoted := q + strings.ReplaceAll(alias, q, "") + q
+
+			if !shouldQuote(original) {
+				return original + " as " + aliasQuoted
+			}
+
 			return origQuoted + " as " + aliasQuoted
 		}
 		return q + strings.ReplaceAll(f, q, "") + q

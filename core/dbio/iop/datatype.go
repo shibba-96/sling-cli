@@ -2071,8 +2071,9 @@ func (s *Selector) OrderFields(fields []string) []string {
 }
 
 // ApplySelect filters, renames, and reorders fields per the select grammar:
-//   "field" include · "-field" exclude · "field as new" rename
-//   "*" all-not-pinned · "prefix*"/"*suffix" glob include · "-prefix*"/"-*suffix" glob exclude
+//
+//	"field" include · "-field" exclude · "field as new" rename
+//	"*" all-not-pinned · "prefix*"/"*suffix" glob include · "-prefix*"/"-*suffix" glob exclude
 //
 // Output follows expression order; `*` and globs expand in source order and
 // skip names pinned elsewhere in the list (so `[id, *, created_at]` keeps
@@ -2350,7 +2351,9 @@ func ApplySelectExprs(fields []string, selectExprs []string) (newFields []string
 		}
 		if matched == "" {
 			if newName != "" {
-				return nil, g.Error("field '%s' not found for rename", field)
+				// pass through unmatched rename as a SQL expression alias
+				newFields = append(newFields, field+" as "+newName)
+				continue
 			}
 			if !hasSelectAll {
 				return nil, g.Error("field '%s' not found", field)
