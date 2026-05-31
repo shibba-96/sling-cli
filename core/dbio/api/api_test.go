@@ -811,6 +811,14 @@ func TestHTTPCallAndResponseExtraction(t *testing.T) {
 					} else {
 						json.NewEncoder(w).Encode(mockMap)
 					}
+				case "/echo":
+					// Reflect the request payload back so a setup processor can
+					// capture exactly what the server received. Used to assert that
+					// {state.X} templates were rendered before the request was built.
+					body, _ := io.ReadAll(r.Body)
+					var reqBody map[string]any
+					_ = g.JSONUnmarshal(body, &reqBody)
+					json.NewEncoder(w).Encode(map[string]any{"received": reqBody})
 				default:
 					// Return the main mock response for other endpoints
 					json.NewEncoder(w).Encode(mockMap)

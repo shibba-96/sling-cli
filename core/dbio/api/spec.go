@@ -360,7 +360,7 @@ type Endpoint struct {
 
 type jsonStream interface {
 	SetOrderedKeys(keys []string) // to maintain column order
-	Flatten() int                // flatten depth, to select flattened field names
+	Flatten() int                 // flatten depth, to select flattened field names
 }
 
 func (ep *Endpoint) SetStateVal(key string, val any) {
@@ -793,6 +793,11 @@ func (ep *Endpoint) setup() (err error) {
 	}
 	ep.context.Unlock()
 
+	// render state templates before the sequence runs
+	if err := baseEndpoint.renderSequenceState(); err != nil {
+		return g.Error(err, "could not render setup state")
+	}
+
 	if err := runSequence(ep.Setup, baseEndpoint); err != nil {
 		return g.Error(err, "endpoint setup failed")
 	}
@@ -845,6 +850,11 @@ func (ep *Endpoint) teardown() (err error) {
 		maps.Copy(baseEndpoint.State, ep.State)
 	}
 	ep.context.Unlock()
+
+	// render state templates before the sequence runs
+	if err := baseEndpoint.renderSequenceState(); err != nil {
+		return g.Error(err, "could not render teardown state")
+	}
 
 	if err := runSequence(ep.Teardown, baseEndpoint); err != nil {
 		return g.Error(err, "endpoint teardown failed")

@@ -1102,3 +1102,54 @@
       updated_at: "2025-01-13"
   expected_state: {}
 
+# Reproduces: state templates that call a function with a quoted format
+# argument (e.g. date_format(..., "%Y-%m-%d")) are NOT rendered before the
+# endpoint `setup` sequence runs. A setup request payload referencing such a
+# state var ships the raw template string to the server instead of the resolved
+# value. The main request path renders state via renderInitial(); the setup
+# path does not. This test asserts the value the setup request actually sent.
+- id: 24
+  name: test_setup_state_render_date_format
+  mock_response:
+    users:
+      - id: 1
+        name: "John Doe"
+  spec:
+    name: setup_state_render_api
+    description: "Test that state function templates render before setup runs"
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        description: "Main endpoint whose setup references a date_format() state var"
+        state:
+          # deterministic (no now()) so the expected value is stable, but
+          # exercises the exact failing pattern: function + quoted "%"-format arg
+          date_filter: '{date_format(date_parse("2026-05-01"), "%Y-%m-%d")}'
+        setup:
+          - request:
+              url: "/echo"
+              method: POST
+              payload:
+                filter: "{state.date_filter}"
+            response:
+              processors:
+                - expression: "response.json.received.filter"
+                  output: "state.echoed_filter"
+                  aggregation: last
+        request:
+          url: "/users"
+          method: GET
+        response:
+          records:
+            jmespath: users
+  expected_records:
+    - id: "1"
+      name: "John Doe"
+  # With the bug, echoed_filter is the raw '{date_format(date_parse("2026-05-01"), "%Y-%m-%d")}'.
+  # After the fix, the setup request sends (and echoes back) the resolved date.
+  expected_state:
+    date_filter: "2026-05-01"
+    echoed_filter: "2026-05-01"
+  expected_next_state: {}
+
