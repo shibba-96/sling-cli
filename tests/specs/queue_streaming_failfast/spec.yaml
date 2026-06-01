@@ -1,0 +1,106 @@
+name: "Queue Streaming Fail-Fast Test"
+description: >
+  Self-contained spec with TWO independent streaming-queue groups. Each group has
+  a queue_only producer (search) feeding its own queue, and children that tail it
+  with consume: immediate. Used to verify (a) broadcast + count match, and (b) when
+  a child in group 1 fails, only group 1 (its producer + children) is terminated,
+  while the independent group 2 finishes successfully.
+
+defaults:
+  state:
+    base_url: "{env.TEST_BASE_URL}"
+
+endpoints:
+  # ---- Group 1: search -> details_a, details_b (queue.item_ids) ----
+  search:
+    queue_only: true
+    request:
+      url: "{state.base_url}/search"
+      method: GET
+    response:
+      records:
+        jmespath: "results"
+      processors:
+        - expression: "record.id"
+          output: "queue.item_ids"
+
+  details_a:
+    iterate:
+      over: "queue.item_ids"
+      into: "state.item_id"
+      consume: immediate
+      concurrency: 3
+    request:
+      url: "{state.base_url}/detail"
+      method: GET
+      parameters:
+        id: "{state.item_id}"
+        grp: "1"
+    response:
+      records:
+        jmespath: "@"
+        primary_key: ["id"]
+
+  details_b:
+    iterate:
+      over: "queue.item_ids"
+      into: "state.item_id"
+      consume: immediate
+      concurrency: 3
+    request:
+      url: "{state.base_url}/detail"
+      method: GET
+      parameters:
+        id: "{state.item_id}"
+        grp: "1"
+    response:
+      records:
+        jmespath: "@"
+        primary_key: ["id"]
+
+  # ---- Group 2 (independent): search2 -> details2_a, details2_b (queue.item_ids2) ----
+  search2:
+    queue_only: true
+    request:
+      url: "{state.base_url}/search"
+      method: GET
+    response:
+      records:
+        jmespath: "results"
+      processors:
+        - expression: "record.id"
+          output: "queue.item_ids2"
+
+  details2_a:
+    iterate:
+      over: "queue.item_ids2"
+      into: "state.item_id"
+      consume: immediate
+      concurrency: 3
+    request:
+      url: "{state.base_url}/detail"
+      method: GET
+      parameters:
+        id: "{state.item_id}"
+        grp: "2"
+    response:
+      records:
+        jmespath: "@"
+        primary_key: ["id"]
+
+  details2_b:
+    iterate:
+      over: "queue.item_ids2"
+      into: "state.item_id"
+      consume: immediate
+      concurrency: 3
+    request:
+      url: "{state.base_url}/detail"
+      method: GET
+      parameters:
+        id: "{state.item_id}"
+        grp: "2"
+    response:
+      records:
+        jmespath: "@"
+        primary_key: ["id"]

@@ -2300,3 +2300,14 @@
   run: 'sling run -d -p tests/pipelines/p.33.select_json_file_source.yaml'
   output_contains:
     - 'select on JSON file source: SUCCESS'
+
+- id: 241
+  name: 'API streaming queue: broadcast count match, group-scoped fail-fast'
+  group: api
+  run: |
+    cd tests/specs/queue_streaming_failfast
+    bash run_test.sh
+  output_contains:
+    - 'SUCCESS PATH OK: all 4 children produced 30 records each'
+    - 'FAIL-FAST PATH OK: group 1 failed/terminated, independent group 2 succeeded'
+    - 'QUEUE STREAMING TEST PASSED'

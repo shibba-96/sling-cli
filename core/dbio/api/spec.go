@@ -604,6 +604,42 @@ func (eps Endpoints) HasUpstreams(endpointName string) (upstreams []string) {
 	return upstreams
 }
 
+// IteratesOverQueue reports whether the endpoint iterates over a queue.
+func (ep *Endpoint) IteratesOverQueue() bool {
+	return ep.QueueIterName() != ""
+}
+
+// QueueIterName returns the queue name iterated over (e.g. "order_ids"), or "".
+func (ep *Endpoint) QueueIterName() string {
+	if over, ok := ep.Iterate.Over.(string); ok {
+		if strings.HasPrefix(over, "queue.") {
+			return strings.TrimPrefix(over, "queue.")
+		}
+	}
+	return ""
+}
+
+// ConsumesQueueImmediately reports whether the endpoint tails a queue live,
+// rather than deferring until the producer finishes (the default).
+func (ep *Endpoint) ConsumesQueueImmediately() bool {
+	return ep.IteratesOverQueue() && ep.Iterate.Consume == ConsumeImmediate
+}
+
+// ProducerQueueNames returns the queues this endpoint produces to (processor outputs).
+func (ep *Endpoint) ProducerQueueNames() (names []string) {
+	seen := map[string]bool{}
+	for _, processor := range ep.Response.Processors {
+		if strings.HasPrefix(processor.Output, "queue.") {
+			name := strings.TrimPrefix(processor.Output, "queue.")
+			if name != "" && !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+}
+
 func (eps Endpoints) Sort() {
 	// First sort alphabetically
 	sort.Slice(eps, func(i, j int) bool {
@@ -993,11 +1029,22 @@ func (iter *Iteration) renderInitial() (err error) {
 	return nil
 }
 
+// Consume controls how an endpoint that iterates over a queue consumes it.
+type Consume string
+
+const (
+	// ConsumeImmediate tails the queue live as the producer appends (fail-fast).
+	ConsumeImmediate Consume = "immediate"
+	// ConsumeDeferred waits for the producer to finish, then reads from the start (default).
+	ConsumeDeferred Consume = "deferred"
+)
+
 // Iterate is for configuring looping values for requests
 type Iterate struct {
-	Over        any    `yaml:"over" json:"over,omitempty"` // expression
-	Into        string `yaml:"into" json:"into,omitempty"` // state variable
-	Concurrency int    `yaml:"concurrency" json:"concurrency,omitempty"`
+	Over        any         `yaml:"over" json:"over,omitempty"` // expression
+	Into        string      `yaml:"into" json:"into,omitempty"` // state variable
+	Consume     Consume     `yaml:"consume" json:"consume,omitempty"` // for queues: deferred (default) or immediate
+	Concurrency int         `yaml:"concurrency" json:"concurrency,omitempty"`
 	iterations  chan *Iteration
 }
 

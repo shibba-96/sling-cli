@@ -1,0 +1,20 @@
+# Success path: two independent streaming-queue groups, all streams succeed.
+# Each child writes one JSON file; the script asserts each has NUM_ITEMS records.
+source: QUEUE_STREAM_TEST
+target: local
+
+env:
+  SLING_THREADS: "6" # both producers + 4 children run concurrently
+  OUT_DIR: ${OUT_DIR}
+
+defaults:
+  mode: full-refresh
+  object: "file://{env.OUT_DIR}/{stream_name}.json"
+
+streams:
+  search: {}
+  details_a: {}
+  details_b: {}
+  search2: {}
+  details2_a: {}
+  details2_b: {}

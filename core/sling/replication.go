@@ -430,6 +430,7 @@ func (rd *ReplicationConfig) ProcessWildcards() (err error) {
 
 						setEndpointProps := func(s *ReplicationStreamConfig) {
 							s.dependsOn = endpoint.DependsOn
+							s.queueStreaming = endpoint.ConsumesQueueImmediately()
 
 							if s.PrimaryKeyI == nil {
 								s.PrimaryKeyI = endpoint.Response.Records.PrimaryKey
@@ -478,6 +479,7 @@ func (rd *ReplicationConfig) ProcessWildcards() (err error) {
 							cfg.Description = ""
 							cfg.dependsOn = nil
 							cfg.overrides = nil
+							cfg.queueStreaming = false
 						}
 						setEndpointProps(cfg) // set endpoint props
 						rd.AddStream(endpoint.Name, cfg)
@@ -921,9 +923,10 @@ func (rd *ReplicationConfig) ProcessChunks() (err error) {
 
 func (rd *ReplicationConfig) AddStream(key string, cfg *ReplicationStreamConfig) {
 	newCfg := ReplicationStreamConfig{}
-	g.Unmarshal(g.Marshal(cfg), &newCfg)       // copy config over
-	newCfg.dependsOn = g.PtrVal(cfg).dependsOn // set dependsOn since not marshalled
-	newCfg.overrides = g.PtrVal(cfg).overrides // set overrides since not marshalled
+	g.Unmarshal(g.Marshal(cfg), &newCfg)                 // copy config over
+	newCfg.dependsOn = g.PtrVal(cfg).dependsOn           // set dependsOn since not marshalled
+	newCfg.overrides = g.PtrVal(cfg).overrides           // set overrides since not marshalled
+	newCfg.queueStreaming = g.PtrVal(cfg).queueStreaming // set since not marshalled
 	rd.Streams[key] = &newCfg
 	rd.streamsOrdered = append(rd.streamsOrdered, key)
 
@@ -1404,9 +1407,10 @@ type ReplicationStreamConfig struct {
 	Columns       any            `json:"columns,omitempty" yaml:"columns,omitempty"`
 	Hooks         HookMap        `json:"hooks,omitempty" yaml:"hooks,omitempty"`
 
-	overrides   *ReplicationStreamConfig `json:"-" yaml:"-"`
-	replication *ReplicationConfig       `json:"-" yaml:"-"`
-	dependsOn   []string                 `json:"-" yaml:"-"`
+	overrides      *ReplicationStreamConfig `json:"-" yaml:"-"`
+	replication    *ReplicationConfig       `json:"-" yaml:"-"`
+	dependsOn      []string                 `json:"-" yaml:"-"`
+	queueStreaming bool                     `json:"-" yaml:"-"`
 }
 
 // SelectColumnsToken, placed first in a stream's `select`, pins the column
@@ -1550,6 +1554,7 @@ func (rd *ReplicationConfig) StreamToTaskConfig(stream *ReplicationStreamConfig,
 		StreamName:        name,
 		ReplicationStream: stream,
 		DependsOn:         stream.dependsOn,
+		QueueStreaming:    stream.queueStreaming,
 		Env:               env,
 	}
 	// so that the next stream does not retain previous pointer values
