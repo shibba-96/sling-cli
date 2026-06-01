@@ -1448,6 +1448,29 @@ func (cfg *Config) StreamID() string {
 	return g.MD5(cfg.Source.Conn, cfg.Target.Conn, cfg.StreamName, cfg.Target.Object)
 }
 
+// CDCSlotLevel returns the effective slot level after applying defaults
+func (cfg *Config) CDCSlotLevel() database.CDCSlotLevel {
+	supported := cfg.SrcConn.Type.IsPostgresLike() || cfg.SrcConn.Type.IsMySQLLike()
+
+	var level database.CDCSlotLevel
+	if cfg.ReplicationStream != nil && cfg.ReplicationStream.CDCOptions != nil {
+		level = g.PtrVal(cfg.ReplicationStream.CDCOptions.SlotLevel)
+	}
+
+	if level == "" {
+		if supported {
+			return database.CDCSlotLevelShared
+		}
+		return database.CDCSlotLevelStream
+	}
+
+	if level == database.CDCSlotLevelShared && !supported {
+		return database.CDCSlotLevelStream
+	}
+
+	return level
+}
+
 // ConfigOptions are configuration options
 type ConfigOptions struct {
 	Debug   bool `json:"debug,omitempty" yaml:"debug,omitempty"`
@@ -1660,6 +1683,9 @@ type CDCOptions struct {
 
 	// Backfill / Replay
 	ReplayFrom *string `json:"replay_from,omitempty" yaml:"replay_from,omitempty"`
+
+	// SlotLevel controls how the replication slot/reader is scoped for sources
+	SlotLevel *database.CDCSlotLevel `json:"slot_level,omitempty" yaml:"slot_level,omitempty"`
 }
 
 // SetDefaults sets default values for CDCOptions from a provided defaults CDCOptions
@@ -1694,6 +1720,9 @@ func (o *CDCOptions) SetDefaults(cdcOptions CDCOptions) {
 	}
 	if o.ReplayFrom == nil {
 		o.ReplayFrom = cdcOptions.ReplayFrom
+	}
+	if o.SlotLevel == nil {
+		o.SlotLevel = cdcOptions.SlotLevel
 	}
 }
 

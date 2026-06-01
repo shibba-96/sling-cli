@@ -1350,8 +1350,8 @@ func (rd *ReplicationConfig) buildCDCRunner() {
 		}
 
 		switch {
-		case cfg.SrcConn.Type.IsMySQLLike():
-			return true
+		case cfg.SrcConn.Type.IsMySQLLike(), cfg.SrcConn.Type.IsPostgresLike():
+			return cfg.CDCSlotLevel() == database.CDCSlotLevelShared
 		}
 		return false
 	}
@@ -1362,8 +1362,11 @@ func (rd *ReplicationConfig) buildCDCRunner() {
 		}
 		if groupKey == "" {
 			groupKey = string(cfg.SrcConn.Type) + ":" + cfg.SrcConnMD5()
-			if cfg.SrcConn.Type.IsMySQLLike() {
+			switch {
+			case cfg.SrcConn.Type.IsMySQLLike():
 				groupKey = "mysql:" + cfg.SrcConnMD5()
+			case cfg.SrcConn.Type.IsPostgresLike():
+				groupKey = "postgres:" + cfg.SrcConnMD5()
 			}
 		}
 		groupTasks = append(groupTasks, cfg)

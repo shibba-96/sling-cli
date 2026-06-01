@@ -670,6 +670,17 @@ func (il IsolationLevel) AsSqlIsolationLevel() sql.IsolationLevel {
 	return sql.LevelDefault
 }
 
+type CDCSlotLevel string
+
+const (
+	CDCSlotLevelStream CDCSlotLevel = "stream"
+	CDCSlotLevelShared CDCSlotLevel = "shared"
+)
+
+func (sl CDCSlotLevel) String() string {
+	return string(sl)
+}
+
 type Operation string
 
 const (
