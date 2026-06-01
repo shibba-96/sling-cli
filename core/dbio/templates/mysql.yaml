@@ -72,7 +72,7 @@ core:
     OPTIONALLY ENCLOSED BY '"'
     ESCAPED BY '\\'
     LINES TERMINATED BY '\n'
-    IGNORE 1 LINES
+    IGNORE 1 LINES{columns_spec}
 
   # Foreign key DDL template
   add_foreign_key: |
@@ -537,6 +537,7 @@ variable:
   bool_as: integer
   max_string_type: mediumtext
   max_string_length: 16777215
+  max_binary_length: 4294967295
   max_column_length: 64
 
 error_filter:
@@ -546,7 +547,7 @@ native_type_map:
   bigint: bigint
   binary: binary
   bit: binary
-  blob: text
+  blob: binary
   char: string
   date: date
   datetime: datetime
@@ -560,9 +561,9 @@ native_type_map:
   int: integer
   json: json
   linestring: string
-  longblob: text
+  longblob: binary
   longtext: text
-  mediumblob: text
+  mediumblob: binary
   mediumint: integer
   mediumtext: text
   multilinestring: string
@@ -575,7 +576,7 @@ native_type_map:
   text: text
   time: time
   timestamp: timestamp
-  tinyblob: text
+  tinyblob: binary
   "tinyint(1)": bool
   tinyint: smallint
   tinytext: text
@@ -590,7 +591,7 @@ native_type_map:
 
 general_type_map:
   bigint: bigint
-  binary: varbinary
+  binary: longblob
   bool: "tinyint(1)"
   date: date
   datetime: "datetime(6)"

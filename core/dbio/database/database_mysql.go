@@ -542,6 +542,7 @@ func (conn *MySQLConn) LoadDataLocal(tableFName string, ds *iop.Datastream) (cou
 	cfg := iop.LoaderStreamConfig(true)
 	cfg.BoolAsInt = true
 	cfg.EscapeBackslash = true
+	cfg.BinaryAsHex = true
 
 	// Each batch in the datastream needs its own LOAD DATA LOCAL INFILE execution,
 	// because the reader handler is consumed once per Exec. Without a per-batch loop,
@@ -549,10 +550,36 @@ func (conn *MySQLConn) LoadDataLocal(tableFName string, ds *iop.Datastream) (cou
 	// is silently dropped.
 	defer mysql.DeregisterReaderHandler(handlerName)
 
+	// binary columns are hex-encoded in the CSV (BinaryAsHex), so read them
+	// into positional @vars and decode via UNHEX on load
+	columnsSpec := ""
+	hasBinary := false
+	for _, col := range ds.Columns {
+		if col.IsBinary() {
+			hasBinary = true
+			break
+		}
+	}
+	if hasBinary {
+		fields := make([]string, len(ds.Columns))
+		sets := []string{}
+		for i, col := range ds.Columns {
+			if col.IsBinary() {
+				varName := g.F("@v%d", i)
+				fields[i] = varName
+				sets = append(sets, g.F("%s = UNHEX(%s)", conn.Quote(col.Name), varName))
+			} else {
+				fields[i] = conn.Quote(col.Name)
+			}
+		}
+		columnsSpec = g.F("\n(%s)\nSET %s", strings.Join(fields, ", "), strings.Join(sets, ", "))
+	}
+
 	tmpl := conn.GetTemplateValue("core.load_data_local_reader")
 	loadQuery := g.R(tmpl,
 		"handler_name", handlerName,
 		"table", tableFName,
+		"columns_spec", columnsSpec,
 	)
 	g.Trace("LoadDataLocal query: %s", loadQuery)
 

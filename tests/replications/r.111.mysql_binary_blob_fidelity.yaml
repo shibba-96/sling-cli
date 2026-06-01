@@ -1,0 +1,114 @@
+# Test MySQL binary/blob fidelity (mediumblob -> mediumblob)
+# Bug: mysql blob types mapped to generic `text`, so binary PDFs were stored as
+# mediumtext and invalid UTF-8 bytes got replaced with the U+FFFD replacement
+# char, corrupting the data. Fix: map blob types to `binary`, hex-encode binary
+# in the LOAD DATA CSV and decode via UNHEX on load.
+
+source: mysql
+target: mysql
+
+defaults:
+  mode: full-refresh
+
+hooks:
+  start:
+    - type: query
+      connection: '{source.name}'
+      query: |
+        DROP TABLE IF EXISTS mysql.binary_blob_src;
+        CREATE TABLE mysql.binary_blob_src (
+          id int PRIMARY KEY,
+          cert_blob mediumblob
+        );
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        INSERT INTO mysql.binary_blob_src (id, cert_blob) VALUES
+        (1, UNHEX('25504446312D312E340AE2E3CFD30A312030206F626A0A00FF00FE0A2554697465')),
+        (2, REPEAT(RANDOM_BYTES(64), 4096)),
+        (3, UNHEX('000102030405060708090A0B0C0D0E0FFEFFFDFC2C220A0D5C4E')),
+        (4, NULL);
+
+    - type: query
+      connection: '{target.name}'
+      query: DROP TABLE IF EXISTS mysql.binary_blob_dest
+
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    # destination column type must be a blob, not text
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT DATA_TYPE as data_type FROM information_schema.columns
+        WHERE table_schema = 'mysql' AND table_name = 'binary_blob_dest'
+          AND column_name = 'cert_blob'
+      into: coltype
+
+    - type: log
+      message: "dest cert_blob data_type: {store.coltype[0].data_type}"
+
+    - type: check
+      check: store.coltype[0].data_type == "longblob"
+      failure_message: "expected longblob, got {store.coltype[0].data_type} (binary mapped to text?)"
+
+    # byte-for-byte fidelity per row (MD5 + length)
+    - type: query
+      connection: '{source.name}'
+      query: |
+        SELECT id, MD5(cert_blob) as m, LENGTH(cert_blob) as l
+        FROM mysql.binary_blob_src ORDER BY id
+      into: src
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT id, MD5(cert_blob) as m, LENGTH(cert_blob) as l
+        FROM mysql.binary_blob_dest ORDER BY id
+      into: dst
+
+    - type: log
+      message: |
+        row1 md5_match={store.src[0].m == store.dst[0].m} len {store.src[0].l}/{store.dst[0].l}
+        row2 md5_match={store.src[1].m == store.dst[1].m} len {store.src[1].l}/{store.dst[1].l}
+        row3 md5_match={store.src[2].m == store.dst[2].m} len {store.src[2].l}/{store.dst[2].l}
+
+    - type: check
+      check: store.src[0].m == store.dst[0].m
+      failure_message: "row 1 (PDF) blob corrupted"
+
+    - type: check
+      check: store.src[1].m == store.dst[1].m
+      failure_message: "row 2 (256KB) blob corrupted"
+
+    - type: check
+      check: store.src[2].m == store.dst[2].m
+      failure_message: "row 3 (full byte range) blob corrupted"
+
+    # NULL must remain NULL
+    - type: query
+      connection: '{target.name}'
+      query: SELECT COUNT(*) as cnt FROM mysql.binary_blob_dest WHERE cert_blob IS NULL
+      into: null_count
+
+    - type: check
+      check: int_parse(store.null_count[0].cnt) == 1
+      failure_message: "NULL blob not preserved (got {store.null_count[0].cnt} nulls)"
+
+    - type: log
+      message: "SUCCESS: MySQL binary blob fidelity test passed"
+
+    - type: query
+      connection: '{source.name}'
+      query: DROP TABLE IF EXISTS mysql.binary_blob_src
+
+    - type: query
+      connection: '{target.name}'
+      query: DROP TABLE IF EXISTS mysql.binary_blob_dest
+
+streams:
+  mysql.binary_blob_src:
+    object: mysql.binary_blob_dest
