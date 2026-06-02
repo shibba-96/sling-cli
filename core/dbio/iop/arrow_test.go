@@ -246,3 +246,24 @@ func TestParseTimeOfDayE(t *testing.T) {
 	_, err = parseTimeOfDayE("not a time")
 	assert.Error(t, err)
 }
+
+// AppendToBuilder must round-trip a canonical UUID string into the arrow.uuid
+// extension builder. With the schema fix, uuid columns now map to UUIDBuilder
+// instead of String, so this value path is exercised end-to-end.
+func TestAppendToBuilderUUID(t *testing.T) {
+	col := &Column{Name: "u", Type: UUIDType}
+	builder := extensions.NewUUIDBuilder(memory.NewGoAllocator())
+	defer builder.Release()
+
+	AppendToBuilder(builder, col, "B86D9F47-F5E1-44A1-9576-1AEF61206EB1") // uppercase
+	AppendToBuilder(builder, col, "b86d9f47-f5e1-44a1-9576-1aef61206eb1") // lowercase
+	AppendToBuilder(builder, col, nil)
+
+	arr := builder.NewArray().(*extensions.UUIDArray)
+	defer arr.Release()
+
+	want := "b86d9f47-f5e1-44a1-9576-1aef61206eb1"
+	assert.Equal(t, want, arr.ValueStr(0), "uppercase uuid should normalize and round-trip")
+	assert.Equal(t, want, arr.ValueStr(1), "lowercase uuid should round-trip")
+	assert.True(t, arr.IsNull(2), "nil should append null")
+}
