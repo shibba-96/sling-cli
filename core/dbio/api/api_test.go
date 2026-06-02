@@ -713,6 +713,7 @@ func TestHTTPCallAndResponseExtraction(t *testing.T) {
 
 		MockResponse      any              `yaml:"mock_response"`     // can be map or string (for CSV)
 		MockResponseRaw   string           `yaml:"mock_response_raw"` // pre-serialized JSON; preserves key order
+		SyncState         map[string]any   `yaml:"sync_state"`        // pre-seeded sync values (simulates a prior incremental run's watermark via PutSyncedState)
 		ExpectedRecords   []map[string]any `yaml:"expected_records"`
 		ExpectedColumns   []string         `yaml:"expected_columns"` // exact column list & order
 		ExpectedState     map[string]any   `yaml:"expected_state"`
@@ -913,6 +914,14 @@ func TestHTTPCallAndResponseExtraction(t *testing.T) {
 			} else {
 				// For other auth types, bypass authentication for testing
 				ac.State.Auth.Authenticated = true
+			}
+
+			// Seed sync values the same way a real incremental re-run does:
+			// the prior run's watermark is restored via PutSyncedState before
+			// reading, populating endpoint.syncMap so {sync.X} resolves.
+			if len(tc.SyncState) > 0 {
+				err = ac.PutSyncedState("test_endpoint", tc.SyncState)
+				assert.NoError(t, err)
 			}
 
 			// Execute the API call and get dataflow

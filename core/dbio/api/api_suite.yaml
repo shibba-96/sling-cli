@@ -1153,3 +1153,54 @@
     echoed_filter: "2026-05-01"
   expected_next_state: {}
 
+# id: 25 - `sync` variables must be available during the endpoint `setup`
+# sequence, not only during the main request. On an incremental re-run the prior
+# watermark is restored into endpoint.syncMap (seeded here via `sync_state`); a
+# setup request referencing {sync.last_updated} must send the resolved value.
+# The /echo handler reflects the payload so we assert what setup actually sent.
+- id: 25
+  name: test_setup_sequence_sync_var_unavailable
+  mock_response:
+    items:
+      - id: 1
+        name: "Item One"
+  sync_state:
+    last_updated: "2026-05-01T00:00:00Z"
+  spec:
+    name: setup_sync_api
+    description: "Test that sync variables are available during the setup sequence"
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        sync: [last_updated]
+        setup:
+          - request:
+              url: "/echo"
+              method: POST
+              payload:
+                watermark: "{sync.last_updated}"
+            response:
+              processors:
+                - expression: "response.json.received.watermark"
+                  output: "state.echoed_watermark"
+                  aggregation: last
+        request:
+          url: "/items"
+          method: GET
+          headers:
+            X-Watermark: "{sync.last_updated}"
+        response:
+          processors:
+            - expression: record.name
+              output: state.last_updated
+              aggregation: maximum
+          records:
+            jmespath: items
+  expected_records:
+    - id: "1"
+      name: "Item One"
+  expected_state:
+    echoed_watermark: "2026-05-01T00:00:00Z"
+  expected_next_state: {}
+

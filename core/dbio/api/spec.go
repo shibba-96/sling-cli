@@ -834,10 +834,14 @@ func (ep *Endpoint) setup() (err error) {
 	array, _ := jmespath.Search("setup", ep.originalMap)
 	baseEndpoint.context.Map.Set("sequence_array", array)
 
-	// copy over state from endpoint with proper locking
+	// copy over state and sync values from endpoint with proper locking
 	ep.context.Lock()
 	if ep.State != nil {
 		maps.Copy(baseEndpoint.State, ep.State)
+	}
+	if ep.syncMap != nil {
+		baseEndpoint.syncMap = make(StateMap)
+		maps.Copy(baseEndpoint.syncMap, ep.syncMap)
 	}
 	ep.context.Unlock()
 
@@ -892,10 +896,14 @@ func (ep *Endpoint) teardown() (err error) {
 		}
 	}
 
-	// copy over state from endpoint with proper locking
+	// copy over state and sync values from endpoint with proper locking
 	ep.context.Lock()
 	if ep.State != nil {
 		maps.Copy(baseEndpoint.State, ep.State)
+	}
+	if ep.syncMap != nil {
+		baseEndpoint.syncMap = make(StateMap)
+		maps.Copy(baseEndpoint.syncMap, ep.syncMap)
 	}
 	ep.context.Unlock()
 
