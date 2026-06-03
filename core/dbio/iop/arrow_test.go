@@ -194,7 +194,7 @@ func TestArrowReaderWithSelectedColumns(t *testing.T) {
 // ColumnsToArrowSchema must map time/timez/uuid to their native Arrow types so the
 // schema matches iopTypeToIcebergPrimitiveType. Previously they fell through to
 // String, causing "cannot promote string to time/uuid" when appending to Iceberg.
-func TestColumnsToArrowSchemaTimeUUID(t *testing.T) {
+func TestArrowColumnsToArrowSchemaTimeUUID(t *testing.T) {
 	columns := Columns{
 		{Name: "t", Type: TimeType, Position: 1},
 		{Name: "tz", Type: TimezType, Position: 2},
@@ -212,7 +212,7 @@ func TestColumnsToArrowSchemaTimeUUID(t *testing.T) {
 // AppendToBuilder must fill a Time64 builder from a bare time-of-day string (as
 // emitted by SQL `time` columns). Previously cast.ToTimeE rejected these and the
 // value silently zeroed to 00:00:00.
-func TestAppendToBuilderTimeOfDay(t *testing.T) {
+func TestArrowAppendToBuilderTimeOfDay(t *testing.T) {
 	col := &Column{Name: "t", Type: TimeType}
 	builder := array.NewTime64Builder(memory.NewGoAllocator(), &arrow.Time64Type{Unit: arrow.Microsecond})
 	defer builder.Release()
@@ -230,7 +230,7 @@ func TestAppendToBuilderTimeOfDay(t *testing.T) {
 	assert.True(t, arr.IsNull(2), "nil should append null")
 }
 
-func TestParseTimeOfDayE(t *testing.T) {
+func TestArrowParseTimeOfDayE(t *testing.T) {
 	for _, s := range []string{"08:30:00.0000000", "08:30:00", "08:30"} {
 		tVal, err := parseTimeOfDayE(s)
 		assert.NoError(t, err, "input %q", s)
@@ -250,7 +250,7 @@ func TestParseTimeOfDayE(t *testing.T) {
 // AppendToBuilder must round-trip a canonical UUID string into the arrow.uuid
 // extension builder. With the schema fix, uuid columns now map to UUIDBuilder
 // instead of String, so this value path is exercised end-to-end.
-func TestAppendToBuilderUUID(t *testing.T) {
+func TestArrowAppendToBuilderUUID(t *testing.T) {
 	col := &Column{Name: "u", Type: UUIDType}
 	builder := extensions.NewUUIDBuilder(memory.NewGoAllocator())
 	defer builder.Release()

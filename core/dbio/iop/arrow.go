@@ -615,7 +615,17 @@ func parseTimeOfDayE(val interface{}) (time.Time, error) {
 		return t, nil
 	}
 	s := strings.TrimSpace(cast.ToString(val))
-	for _, layout := range []string{"15:04:05.9999999", "15:04:05.999999", "15:04:05", "15:04"} {
+	for _, layout := range []string{
+		"15:04:05.999999999",
+		"15:04:05.999999",
+		"15:04:05.999",
+		"15:04:05",
+		"15:04:05.999999999Z07:00",
+		"15:04:05.999999Z07:00",
+		"15:04:05Z07:00",
+		"15:04:05-07",
+		"15:04",
+	} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t, nil
 		}
