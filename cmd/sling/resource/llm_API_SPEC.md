@@ -345,6 +345,8 @@ endpoints:
 
 **Lifecycle**: Declare → Write (via processors) → Read (via iterate) → Auto-cleanup. Queues are temporary JSONL files. Producers run before consumers (auto-ordered). Cannot write after reading starts.
 
+**Consumption** (`iterate.consume`): By default (`deferred`) a consumer waits for the producer to finish before reading. Set `consume: immediate` to tail the queue live — the consumer starts as soon as the producer appends records (runs concurrently with `SLING_THREADS`). With `immediate`, the producer and its consumers form a fail-fast group: if any member fails, the rest of that group is terminated (a failed consumer stops its producer; a failed producer stops its consumers). Unrelated streams are unaffected. Use `immediate` when you want early failure and pipelined throughput; keep the default `deferred` when a consumer needs the complete queue (e.g. dedupe/aggregate across all items).
+
 **Usage Tips**: Use descriptive names, keep items small (IDs/strings), let Sling determine execution order.
 
 ### Direct Queue-to-Records
@@ -659,6 +661,10 @@ iterate:
   over: "queue.product_ids"
   # Name of the state variable to store the current item in each iteration. Must start with 'state.'.
   into: "state.current_product_id"
+  # Optional (queue iteration only): when to consume the queue.
+  #   deferred (default) — wait for the producer to finish, then read from the start.
+  #   immediate — tail the queue live as the producer appends; enables fail-fast.
+  consume: deferred
   # Optional: Number of iterations to run concurrently (default: 10).
   concurrency: 5
   # Optional: Condition to evaluate before starting iteration.
