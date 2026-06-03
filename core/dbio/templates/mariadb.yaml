@@ -4,6 +4,7 @@ core:
   drop_index: drop index if exists {index} on {table}
   create_table: create table if not exists {table} ({col_types}) CHARACTER SET utf8mb4
   create_index: create index {index} on {table} ({cols})
+  create_index_full: create {unique} index {index} on {table} ({cols}) {using}
   insert: insert into {table} ({fields}) values ({values})
   update: update {table} set {set_fields} where {pk_fields_equal}
   alter_columns: alter table {table} modify {col_ddl}

@@ -1,0 +1,53 @@
+# Column DDL constraints test: Snowflake target
+# Snowflake emits not_null / primary_key / unique (inline) and column COMMENTs.
+# It has no secondary indexes (the index modifier is dropped with a warning),
+# so index presence is not inspected here.
+env:
+  SOURCE: postgres
+  TARGET: snowflake
+  SCHEMA: PUBLIC
+
+steps:
+  - connection: '{env.TARGET}'
+    query: drop table if exists {env.SCHEMA}.cddl_dst
+
+  - type: replication
+    id: repl
+    replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+      streams:
+        public.cddl_src:
+          object: '{env.SCHEMA}.cddl_dst'
+          columns:
+            id: bigint not_null primary_key
+            email: string(255) not_null unique
+            org_id: string(255) not_null
+            region: string(255)
+            notes: string(255) description('user notes')
+
+  # nullability (Snowflake upper-cases identifiers)
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from information_schema.columns
+      where table_schema = '{env.SCHEMA}' and table_name = 'CDDL_DST'
+        and is_nullable = 'NO' and column_name in ('ID','EMAIL','ORG_ID')
+    into: notnull_cnt
+  - type: check
+    check: int_parse(store.notnull_cnt[0].cnt) == 3
+    message: 'expected 3 NOT NULL columns, got {store.notnull_cnt[0].cnt}'
+
+  # description / column comment on notes
+  - connection: '{env.TARGET}'
+    query: |
+      select comment from information_schema.columns
+      where table_schema = '{env.SCHEMA}' and table_name = 'CDDL_DST' and column_name = 'NOTES'
+    into: notes_comment
+  - type: check
+    check: store.notes_comment[0].comment == "user notes"
+    message: 'expected comment "user notes" on notes, got {store.notes_comment[0].comment}'
+
+  - type: log
+    message: 'SUCCESS: snowflake column DDL verified'

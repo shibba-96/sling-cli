@@ -234,6 +234,9 @@ func (conn *SnowflakeConn) GenerateDDL(table Table, data iop.Dataset, temporary 
 	}
 	sql = strings.ReplaceAll(sql, "{cluster_by}", clusterBy)
 
+	// column comments (Snowflake has no secondary indexes)
+	sql = appendIndexesAndComments(strings.TrimSpace(sql), conn, table, data, temporary)
+
 	return strings.TrimSpace(sql), nil
 }
 

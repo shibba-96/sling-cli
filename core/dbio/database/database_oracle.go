@@ -219,12 +219,19 @@ func (conn *OracleConn) GenerateDDL(table Table, data iop.Dataset, temporary boo
 		return ddl, g.Error(err)
 	}
 
-	for _, index := range table.Indexes(data.Columns) {
-		ddl = strings.ReplaceAll(
-			ddl,
-			"EXCEPTION",
-			g.F("EXECUTE IMMEDIATE '%s';\nEXCEPTION", index.CreateDDL()),
-		)
+	// indexes only on the final table (see note in postgres GenerateDDL)
+	if !temporary {
+		for _, index := range table.Indexes(data.Columns) {
+			idxDDL := index.CreateDDL()
+			if idxDDL == "" {
+				continue
+			}
+			ddl = strings.ReplaceAll(
+				ddl,
+				"EXCEPTION",
+				g.F("EXECUTE IMMEDIATE '%s';\nEXCEPTION", idxDDL),
+			)
+		}
 	}
 
 	return ddl, nil

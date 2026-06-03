@@ -388,8 +388,17 @@ func (conn *MySQLConn) GenerateDDL(table Table, data iop.Dataset, temporary bool
 		return ddl, g.Error(err)
 	}
 
-	for _, index := range table.Indexes(data.Columns) {
-		ddl = ddl + ";\n" + index.CreateDDL()
+	// indexes & comments only on the final table (see note in postgres GenerateDDL)
+	if !temporary {
+		for _, index := range table.Indexes(data.Columns) {
+			if idxDDL := index.CreateDDL(); idxDDL != "" {
+				ddl = ddl + ";\n" + idxDDL
+			}
+		}
+
+		for _, stmt := range table.ColumnCommentsDDL(conn, data.Columns) {
+			ddl = ddl + ";\n" + stmt
+		}
 	}
 
 	return ddl, nil

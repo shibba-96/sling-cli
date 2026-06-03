@@ -122,6 +122,17 @@ const (
 	// Primary Key
 	ColMetaIsPrimaryKey ColMetaKey = "is_primary_key" // "true" if column is part of primary key
 
+	// Unique
+	ColMetaUnique ColMetaKey = "unique" // "true" if column has a UNIQUE constraint
+
+	// Index (JSON-encoded []IndexDef contributed by this column's inline index modifiers)
+	ColMetaIndex ColMetaKey = "index"
+
+	// DDLExplicit marks that DDL constraints were declared explicitly via the
+	// columns: modifier DSL (not_null, primary_key, unique, description), so they
+	// should be rendered at CREATE time even when schema-migration is not enabled.
+	ColMetaDDLExplicit ColMetaKey = "ddl_explicit"
+
 	// Foreign Keys (JSON struct)
 	ColMetaForeignKey ColMetaKey = "foreign_key"
 
@@ -139,7 +150,8 @@ func (cmk ColMetaKey) String() string {
 // ColMetaKeys is a list of all column metadata keys
 var ColMetaKeys = []ColMetaKey{
 	ColMetaAutoIncrement, ColMetaIdentitySeed, ColMetaIdentityIncr,
-	ColMetaNullable, ColMetaDefaultValue, ColMetaIsPrimaryKey, ColMetaForeignKey,
+	ColMetaNullable, ColMetaDefaultValue, ColMetaIsPrimaryKey, ColMetaUnique,
+	ColMetaIndex, ColMetaDDLExplicit, ColMetaForeignKey,
 	ColMetaCheckConstraint, ColMetaDescription,
 }
 
@@ -698,6 +710,7 @@ func (cols Columns) Coerce(castCols Columns, hasHeader bool, casing ColumnCasing
 			newCols[i].DbPrecision = lo.Ternary(col.DbPrecision > 0, col.DbPrecision, newCols[i].DbPrecision)
 			newCols[i].DbScale = lo.Ternary(col.DbScale > 0, col.DbScale, newCols[i].DbScale)
 			newCols[i].Sourced = true
+			newCols[i].mergeDDLMetadata(col)
 			if !newCols[i].Type.IsValid() {
 				g.Warn("Provided unknown column type (%s) for column '%s'. Using string.", newCols[i].Type, newCols[i].Name)
 				newCols[i].Type = StringType
@@ -715,6 +728,7 @@ func (cols Columns) Coerce(castCols Columns, hasHeader bool, casing ColumnCasing
 
 		if castCol != nil {
 			col = *castCol
+			newCols[i].mergeDDLMetadata(col)
 			if col.Type.IsValid() {
 				g.Debug("casting column '%s' as '%s'", col.Name, col.Type)
 				newCols[i].Type = col.Type
@@ -1124,6 +1138,27 @@ func (col *Column) EvaluateConstraint(value any, sp *StreamProcessor) (err error
 	return
 }
 
+// mergeDDLMetadata copies the DDL-relevant metadata (nullable, primary_key,
+// unique, index, description, ddl_explicit) and Description from src onto col.
+// Used when coercing the configured columns: declarations onto the streamed
+// columns so the modifier DSL survives to DDL generation. Only keys present in
+// src are copied (source-derived metadata is otherwise preserved).
+func (col *Column) mergeDDLMetadata(src Column) {
+	if src.Metadata != nil {
+		for _, key := range []ColMetaKey{
+			ColMetaNullable, ColMetaIsPrimaryKey, ColMetaUnique,
+			ColMetaIndex, ColMetaDescription, ColMetaDDLExplicit,
+		} {
+			if v, ok := src.Metadata[key.String()]; ok {
+				col.SetMetadata(key.String(), v)
+			}
+		}
+	}
+	if src.Description != "" {
+		col.Description = src.Description
+	}
+}
+
 func (col *Column) SetMetadata(key string, value string) {
 	if col.Metadata == nil {
 		col.Metadata = map[string]string{}
@@ -1170,6 +1205,41 @@ func (col *Column) IsPrimaryKey() bool {
 		return false
 	}
 	return col.Metadata[ColMetaIsPrimaryKey.String()] == "true"
+}
+
+// HasUniqueConstraint returns true if the column has a UNIQUE constraint declared
+// via the columns: modifier DSL.
+func (col *Column) HasUniqueConstraint() bool {
+	if col.Metadata == nil {
+		return false
+	}
+	return col.Metadata[ColMetaUnique.String()] == "true"
+}
+
+// IsDDLExplicit returns true if DDL constraints were declared explicitly via the
+// columns: modifier DSL (so they apply at CREATE time without schema-migration).
+func (col *Column) IsDDLExplicit() bool {
+	if col.Metadata == nil {
+		return false
+	}
+	return col.Metadata[ColMetaDDLExplicit.String()] == "true"
+}
+
+// GetIndexDefs returns the inline index definitions declared on this column
+// via the columns: modifier DSL (index/index(...)/unique_index(...)).
+func (col *Column) GetIndexDefs() (defs []IndexDef) {
+	if col.Metadata == nil {
+		return nil
+	}
+	val := col.Metadata[ColMetaIndex.String()]
+	if val == "" {
+		return nil
+	}
+	if err := g.Unmarshal(val, &defs); err != nil {
+		g.Warn("could not parse index metadata for column %s: %s", col.Name, err.Error())
+		return nil
+	}
+	return defs
 }
 
 // GetForeignKey returns the foreign key info if present

@@ -1,0 +1,53 @@
+# Column DDL constraints test: BigQuery target
+# BigQuery emits not_null and column descriptions (via ALTER COLUMN SET OPTIONS).
+# It has no general CREATE INDEX (only search indexes on STRING/JSON), so the
+# index modifier is not emitted and index presence is not inspected here.
+# (BigQuery primary keys are advisory / NOT ENFORCED, so PK is not asserted.)
+env:
+  SOURCE: postgres
+  TARGET: bigquery
+  SCHEMA: public
+
+steps:
+  - connection: '{env.TARGET}'
+    query: drop table if exists {env.SCHEMA}.cddl_dst
+
+  - type: replication
+    id: repl
+    replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+      streams:
+        public.cddl_src:
+          object: '{env.SCHEMA}.cddl_dst'
+          columns:
+            id: bigint not_null
+            email: string(255) not_null
+            org_id: string(255) not_null
+            region: string(255)
+            notes: string(255) description('user notes')
+
+  # nullability
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from {env.SCHEMA}.INFORMATION_SCHEMA.COLUMNS
+      where table_name = 'cddl_dst' and is_nullable = 'NO' and column_name in ('id','email','org_id')
+    into: notnull_cnt
+  - type: check
+    check: int_parse(store.notnull_cnt[0].cnt) == 3
+    message: 'expected 3 NOT NULL columns, got {store.notnull_cnt[0].cnt}'
+
+  # description on notes
+  - connection: '{env.TARGET}'
+    query: |
+      select description from {env.SCHEMA}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS
+      where table_name = 'cddl_dst' and column_name = 'notes'
+    into: notes_comment
+  - type: check
+    check: store.notes_comment[0].description == "user notes"
+    message: 'expected description "user notes" on notes, got {store.notes_comment[0].description}'
+
+  - type: log
+    message: 'SUCCESS: bigquery column DDL verified'

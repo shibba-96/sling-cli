@@ -137,6 +137,11 @@ func (t *Table) SetKeys(sourcePKCols []string, updateCol string, tableKeys Table
 
 	if tkMap := tableKeys; tkMap != nil {
 		for tableKey, keys := range tkMap {
+			if tableKey == iop.IndexKey {
+				// index DDL is driven by ParseIndexes (which supports composite)
+				eG.Capture(t.Columns.SetKeys(tableKey, tableKeys.IndexColumnNames()...))
+				continue
+			}
 			eG.Capture(t.Columns.SetKeys(tableKey, keys...))
 		}
 	}
@@ -524,8 +529,6 @@ func (t *Table) Select(Opts ...SelectOptions) (sql string) {
 
 	return
 }
-
-type TableKeys map[iop.KeyType][]string
 
 // Database represents a schemata database
 type Database struct {
@@ -1168,6 +1171,55 @@ func GetSchemataAll(conn Connection) (schemata Schemata, err error) {
 }
 
 // AddPrimaryKeyToDDL adds a primary key to the table
+// ColumnCommentsDDL returns COMMENT/description statements for columns that
+// carry an explicit description (set via the `description(...)` column modifier).
+// These are applied post-CREATE so that descriptions render on fresh tables even
+// when schema-migration is disabled. Returns an empty slice when the dialect has
+// no add_column_comment template or no explicit descriptions exist.
+func (t *Table) ColumnCommentsDDL(conn Connection, columns iop.Columns) (stmts []string) {
+	addCommentTemplate := conn.Template().Core["add_column_comment"]
+	if addCommentTemplate == "" {
+		return nil
+	}
+
+	for _, col := range columns {
+		// only apply for columns that explicitly declared a description via the modifier DSL
+		if !col.IsDDLExplicit() {
+			continue
+		}
+		description := col.Metadata[iop.ColMetaDescription.String()]
+		if description == "" {
+			description = col.Description
+		}
+		if description == "" {
+			continue
+		}
+
+		// Escape single quotes
+		escapedDesc := strings.ReplaceAll(description, "'", "''")
+
+		// For MySQL/MariaDB the template needs the full column type definition
+		colType := col.DbType
+		if g.In(conn.GetType(), dbio.TypeDbMySQL, dbio.TypeDbMariaDB) {
+			if nativeType, err := conn.Self().GetNativeType(col); err == nil {
+				colType = nativeType
+			}
+		}
+
+		stmt := g.R(
+			addCommentTemplate,
+			"table", t.FullName(),
+			"schema", t.Schema,
+			"table_name", t.Name,
+			"column", col.Name,
+			"comment", "'"+escapedDesc+"'",
+			"type", colType,
+		)
+		stmts = append(stmts, stmt)
+	}
+	return stmts
+}
+
 func (t *Table) AddPrimaryKeyToDDL(ddl string, columns iop.Columns) (string, error) {
 
 	if pkCols := columns.GetKeys(iop.PrimaryKey); len(pkCols) > 0 {
@@ -1228,102 +1280,6 @@ func (t *Table) AddPrimaryKeyToDDL(ddl string, columns iop.Columns) (string, err
 	}
 
 	return ddl, nil
-}
-
-type TableIndex struct {
-	Name    string
-	Columns iop.Columns
-	Unique  bool
-	Table   *Table
-}
-
-func (ti *TableIndex) CreateDDL() string {
-	dialect := ti.Table.Dialect
-	quotedNames := dialect.QuoteNames(ti.Columns.Names()...)
-
-	if ti.Unique {
-		return g.R(
-			dialect.GetTemplateValue("core.create_unique_index"),
-			"index", dialect.Quote(ti.Name),
-			"table", ti.Table.FDQN(),
-			"cols", strings.Join(quotedNames, ", "),
-		)
-	}
-
-	return g.R(
-		dialect.GetTemplateValue("core.create_index"),
-		"index", dialect.Quote(ti.Name),
-		"table", ti.Table.FDQN(),
-		"cols", strings.Join(quotedNames, ", "),
-	)
-}
-
-func (ti *TableIndex) DropDDL() string {
-	dialect := ti.Table.Dialect
-
-	return g.R(
-		dialect.GetTemplateValue("core.drop_index"),
-		"index", dialect.Quote(ti.Name),
-		"name", ti.Name,
-		"table", ti.Table.FDQN(),
-		"schema", ti.Table.SchemaQ(),
-	)
-}
-
-func (t *Table) Indexes(columns iop.Columns) (indexes []TableIndex) {
-
-	// TODO: composite column indexes not yet supported
-	// if indexSet := columns.GetKeys(iop.IndexKey); len(indexSet) > 0 {
-
-	// 	// create index name from the first 6 chars of each column name
-	// 	indexNameParts := []string{strings.ToLower(t.Name)}
-	// 	for _, col := range indexSet.Names() {
-	// 		if len(col) < 6 {
-	// 			indexNameParts = append(indexNameParts, col)
-	// 		} else {
-	// 			indexNameParts = append(indexNameParts, col[:6])
-	// 		}
-	// 	}
-
-	// 	index := TableIndex{
-	// 		Name:    strings.Join(indexNameParts, "_"),
-	// 		Columns: indexSet,
-	// 		Unique:  false,
-	// 		Table:   t,
-	// 	}
-
-	// 	indexes = append(indexes, index)
-	// }
-
-	// normal index
-	for _, col := range columns.GetKeys(iop.IndexKey) {
-
-		indexNameParts := []string{strings.ToLower(t.Name), strings.ToLower(col.Name)}
-		index := TableIndex{
-			Name:    strings.Join(indexNameParts, "_"),
-			Columns: iop.Columns{col},
-			Unique:  false,
-			Table:   t,
-		}
-
-		indexes = append(indexes, index)
-	}
-
-	// unique index
-	for _, col := range columns.GetKeys(iop.UniqueKey) {
-
-		indexNameParts := []string{strings.ToLower(t.Name), strings.ToLower(col.Name)}
-		index := TableIndex{
-			Name:    strings.Join(indexNameParts, "_"),
-			Columns: iop.Columns{col},
-			Unique:  true,
-			Table:   t,
-		}
-
-		indexes = append(indexes, index)
-	}
-
-	return
 }
 
 // getColumnTypes recovers from ColumnTypes panics
@@ -1590,6 +1546,7 @@ type SchemaMigrator interface {
 	HasAutoIncrementEnabled() bool
 	HasNullableEnabled() bool
 	HasDefaultValueEnabled() bool
+	HasUniqueEnabled() bool
 	IsEnabled() bool
 }
 
@@ -1633,6 +1590,10 @@ func (d *dummySchemaMigrator) HasNullableEnabled() bool {
 }
 
 func (d *dummySchemaMigrator) HasDefaultValueEnabled() bool {
+	return false
+}
+
+func (d *dummySchemaMigrator) HasUniqueEnabled() bool {
 	return false
 }
 

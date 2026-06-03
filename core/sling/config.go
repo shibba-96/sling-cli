@@ -747,6 +747,11 @@ func (cfg *Config) Prepare() (err error) {
 		}
 	}
 
+	// validate column modifier DSL
+	if _, err = cfg.ColumnsPrepared(); err != nil {
+		return err
+	}
+
 	// validate conn data keys
 	for key := range cfg.SrcConn.Data {
 		if strings.Contains(key, ":") {
@@ -1327,56 +1332,60 @@ func (cfg *Config) HasIncrementalVal() bool {
 	return cfg.IncrementalValStr != "" && cfg.IncrementalValStr != "null"
 }
 
-// ColumnsPrepared returns the prepared columns
-func (cfg *Config) ColumnsPrepared() (columns iop.Columns) {
-
-	if cfg.Target.Columns != nil {
-		switch colsCasted := cfg.Target.Columns.(type) {
-		case map[string]any:
-			for colName, colType := range colsCasted {
-				col := iop.Column{
-					Name: colName,
-					Type: iop.ColumnType(cast.ToString(colType)),
-				}
-				columns = append(columns, col)
-			}
-		case map[any]any:
-			for colName, colType := range colsCasted {
-				col := iop.Column{
-					Name: cast.ToString(colName),
-					Type: iop.ColumnType(cast.ToString(colType)),
-				}
-				columns = append(columns, col)
-			}
-		case []map[string]any:
-			for _, colItem := range colsCasted {
-				col := iop.Column{}
-				g.Unmarshal(g.Marshal(colItem), &col)
-				columns = append(columns, col)
-			}
-		case []any:
-			for _, colItem := range colsCasted {
-				col := iop.Column{}
-				g.Unmarshal(g.Marshal(colItem), &col)
-				columns = append(columns, col)
-			}
-		case iop.Columns:
-			columns = colsCasted
-		default:
-			g.Warn("Config.Source.Options.Columns not handled: %T", cfg.Source.Options.Columns)
-		}
-
-		// parse constraint, length, precision, scale
-		for i := range columns {
-			columns[i].SetConstraint()
-			columns[i].SetLengthPrecisionScale()
-		}
-
-		// set as string so that StreamProcessor parses it
-		columns = iop.NewColumns(columns...)
+// ColumnsPrepared builds the prepared columns from cfg.Target.Columns and parses
+func (cfg *Config) ColumnsPrepared() (columns iop.Columns, err error) {
+	if cfg.Target.Columns == nil {
+		return nil, nil
 	}
 
-	return
+	switch colsCasted := cfg.Target.Columns.(type) {
+	case map[string]any:
+		for colName, colType := range colsCasted {
+			col := iop.Column{
+				Name: colName,
+				Type: iop.ColumnType(cast.ToString(colType)),
+			}
+			columns = append(columns, col)
+		}
+	case map[any]any:
+		for colName, colType := range colsCasted {
+			col := iop.Column{
+				Name: cast.ToString(colName),
+				Type: iop.ColumnType(cast.ToString(colType)),
+			}
+			columns = append(columns, col)
+		}
+	case []map[string]any:
+		for _, colItem := range colsCasted {
+			col := iop.Column{}
+			g.Unmarshal(g.Marshal(colItem), &col)
+			columns = append(columns, col)
+		}
+	case []any:
+		for _, colItem := range colsCasted {
+			col := iop.Column{}
+			g.Unmarshal(g.Marshal(colItem), &col)
+			columns = append(columns, col)
+		}
+	case iop.Columns:
+		columns = colsCasted
+	default:
+		g.Warn("Config.Target.Columns not handled: %T", cfg.Target.Columns)
+	}
+
+	// parse constraint, modifiers, length, precision, scale
+	for i := range columns {
+		columns[i].SetConstraint()
+		if e := columns[i].ParseModifiers(); e != nil && err == nil {
+			err = g.Error(e, "invalid column modifier")
+		}
+		columns[i].SetLengthPrecisionScale()
+	}
+
+	// set as string so that StreamProcessor parses it
+	columns = iop.NewColumns(columns...)
+
+	return columns, err
 }
 
 // TransformsPrepared returns the transforms columns

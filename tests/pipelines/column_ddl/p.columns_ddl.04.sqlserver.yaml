@@ -1,0 +1,87 @@
+# Column DDL constraints test: SQL Server target
+# Verifies not_null, primary_key, unique_index, index and description
+# (column comment via sys.extended_properties MS_Description).
+env:
+  SOURCE: postgres
+  TARGET: mssql
+  SCHEMA: dbo
+
+steps:
+  - connection: '{env.TARGET}'
+    query: IF OBJECT_ID('{env.SCHEMA}.cddl_dst', 'U') IS NOT NULL DROP TABLE {env.SCHEMA}.cddl_dst
+
+  - type: replication
+    id: repl
+    replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+      streams:
+        public.cddl_src:
+          object: '{env.SCHEMA}.cddl_dst'
+          columns:
+            id: bigint not_null primary_key
+            email: string(255) not_null unique_index
+            org_id: string(255) not_null
+            region: string(255) index
+            notes: string(255) description('user notes')
+
+  # nullability
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from information_schema.columns
+      where table_schema = '{env.SCHEMA}' and table_name = 'cddl_dst'
+        and is_nullable = 'NO' and column_name in ('id','email','org_id')
+    into: notnull_cnt
+  - type: check
+    check: int_parse(store.notnull_cnt[0].cnt) == 3
+    message: 'expected 3 NOT NULL columns, got {store.notnull_cnt[0].cnt}'
+
+  # primary key
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from information_schema.table_constraints
+      where table_schema = '{env.SCHEMA}' and table_name = 'cddl_dst'
+        and constraint_type = 'PRIMARY KEY'
+    into: pk_cnt
+  - type: check
+    check: int_parse(store.pk_cnt[0].cnt) == 1
+    message: 'expected 1 primary key, got {store.pk_cnt[0].cnt}'
+
+  # unique index on email
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from sys.indexes
+      where object_id = OBJECT_ID('{env.SCHEMA}.cddl_dst')
+        and name = 'idx_cddl_dst_email' and is_unique = 1
+    into: uniq_idx
+  - type: check
+    check: int_parse(store.uniq_idx[0].cnt) == 1
+    message: 'expected unique index on email, got {store.uniq_idx[0].cnt}'
+
+  # plain index on region
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from sys.indexes
+      where object_id = OBJECT_ID('{env.SCHEMA}.cddl_dst')
+        and name = 'idx_cddl_dst_region' and is_unique = 0
+    into: plain_idx
+  - type: check
+    check: int_parse(store.plain_idx[0].cnt) == 1
+    message: 'expected non-unique index on region, got {store.plain_idx[0].cnt}'
+
+  # description / column comment (extended property)
+  - connection: '{env.TARGET}'
+    query: |
+      select cast(value as varchar(200)) comment from sys.extended_properties
+      where major_id = OBJECT_ID('{env.SCHEMA}.cddl_dst') and name = 'MS_Description'
+        and minor_id = (select column_id from sys.columns
+                        where object_id = OBJECT_ID('{env.SCHEMA}.cddl_dst') and name = 'notes')
+    into: notes_comment
+  - type: check
+    check: store.notes_comment[0].comment == "user notes"
+    message: 'expected comment "user notes" on notes, got {store.notes_comment[0].comment}'
+
+  - type: log
+    message: 'SUCCESS: sqlserver column DDL verified'

@@ -2345,3 +2345,37 @@
   output_contains:
     - 'execution succeeded'
     - 'SUCCESS: Postgres binary fidelity test passed'
+
+# Column DDL constraints & index improvements — single self-contained pipeline
+# covering the columns: modifier DSL (not_null / primary_key / unique /
+# description / inline index), the ClickHouse not_null fix, the
+# table_keys.index list form, and the reserved-but-unsupported error path.
+- id: 245
+  name: 'Test column DDL constraints & indexes (pipeline)'
+  run: 'sling run -d -p tests/pipelines/p.34.column_ddl_constraints_and_indexes.yaml'
+  output_contains:
+    - 'is not yet supported'
+    - 'SUCCESS: column DDL constraints & indexes pipeline passed'
+
+# Column DDL per-engine validation — master pipeline builds a Postgres source
+# table then drives one child pipeline per emission-capable engine. Each child
+# applies the columns: modifier DSL and inspects the target catalog /
+# information_schema to confirm not_null / primary_key / unique / index /
+# description landed correctly (each engine asserts only what it natively emits).
+- id: 246
+  name: 'Test column DDL per-engine (master pipeline)'
+  run: 'sling run -p tests/pipelines/column_ddl/p.columns_ddl.00.master.yaml'
+  output_contains:
+    - 'SUCCESS: postgres column DDL verified'
+    - 'SUCCESS: mysql column DDL verified'
+    - 'SUCCESS: mariadb column DDL verified'
+    - 'SUCCESS: sqlserver column DDL verified'
+    - 'SUCCESS: sqlite column DDL verified'
+    - 'SUCCESS: oracle column DDL verified'
+    - 'SUCCESS: clickhouse column DDL verified'
+    - 'SUCCESS: snowflake column DDL verified'
+    - 'SUCCESS: duckdb column DDL verified'
+    - 'SUCCESS: motherduck column DDL verified'
+    - 'SUCCESS: bigquery column DDL verified'
+    - 'SUCCESS: starrocks column DDL verified'
+    - 'SUCCESS: all column DDL engine pipelines passed'

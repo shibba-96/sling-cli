@@ -1,0 +1,431 @@
+# Column DDL constraints & index improvements — self-contained pipeline.
+# Covers the columns: modifier DSL, the ClickHouse not_null fix, the
+# table_keys.index list form, and the reserved-but-unsupported error path.
+
+steps:
+  # 1. Column modifier DSL — not_null / primary_key / unique / description
+  - type: query
+    connection: postgres
+    query: |
+      DROP TABLE IF EXISTS public.col_ddl_src;
+      CREATE TABLE public.col_ddl_src (id bigint, email text, org_id text, notes text);
+      INSERT INTO public.col_ddl_src (id, email, org_id, notes) VALUES
+      (1, 'a@x.com', 'org1', 'hello'),
+      (2, 'b@x.com', 'org2', NULL);
+
+  - type: query
+    connection: postgres
+    query: DROP TABLE IF EXISTS public.col_ddl_dest
+
+  - type: replication
+    id: repl_constraints
+    replication:
+      source: postgres
+      target: postgres
+      defaults:
+        mode: full-refresh
+      streams:
+        public.col_ddl_src:
+          object: public.col_ddl_dest
+          columns:
+            id: bigint not_null primary_key
+            email: text not_null unique
+            org_id: text not_null
+            notes: text description('user-supplied notes')
+
+  - type: check
+    check: state.repl_constraints.status == "success"
+    failure_message: "constraints replication failed: {state.repl_constraints.error}"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT is_nullable as is_nullable FROM information_schema.columns
+      WHERE table_name = 'col_ddl_dest' AND column_name = 'id'
+    into: id_null
+
+  - type: check
+    check: store.id_null[0].is_nullable == "NO"
+    failure_message: "expected id NOT NULL, got nullable={store.id_null[0].is_nullable}"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM information_schema.table_constraints
+      WHERE table_name = 'col_ddl_dest' AND constraint_type = 'PRIMARY KEY'
+    into: pk
+
+  - type: check
+    check: int_parse(store.pk[0].cnt) == 1
+    failure_message: "expected a PRIMARY KEY on col_ddl_dest"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM information_schema.table_constraints
+      WHERE table_name = 'col_ddl_dest' AND constraint_type = 'UNIQUE'
+    into: uniq
+
+  - type: check
+    check: int_parse(store.uniq[0].cnt) >= 1
+    failure_message: "expected a UNIQUE constraint on col_ddl_dest"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT col_description('public.col_ddl_dest'::regclass, ordinal_position) as comment
+      FROM information_schema.columns
+      WHERE table_name = 'col_ddl_dest' AND column_name = 'notes'
+    into: comment
+
+  - type: check
+    check: store.comment[0].comment == "user-supplied notes"
+    failure_message: "expected notes description, got {store.comment[0].comment}"
+
+  # 2. ClickHouse not_null fix — explicit not_null must NOT be Nullable(T)
+  - type: query
+    connection: postgres
+    query: |
+      DROP TABLE IF EXISTS public.ch_ddl_src;
+      CREATE TABLE public.ch_ddl_src (id bigint, name text, notes text);
+      INSERT INTO public.ch_ddl_src (id, name, notes) VALUES
+      (1, 'alice', 'hello'),
+      (2, 'bob', NULL);
+
+  - type: query
+    connection: clickhouse
+    query: DROP TABLE IF EXISTS default.ch_ddl_dest
+
+  - type: replication
+    id: repl_clickhouse
+    replication:
+      source: postgres
+      target: clickhouse
+      defaults:
+        mode: full-refresh
+      streams:
+        public.ch_ddl_src:
+          object: default.ch_ddl_dest
+          primary_key: id
+          columns:
+            id: bigint not_null
+            name: string not_null
+            notes: string
+
+  - type: check
+    check: state.repl_clickhouse.status == "success"
+    failure_message: "clickhouse replication failed: {state.repl_clickhouse.error}"
+
+  - type: query
+    connection: clickhouse
+    query: |
+      SELECT type FROM system.columns
+      WHERE database = 'default' AND table = 'ch_ddl_dest' AND name = 'id'
+    into: id_type
+
+  - type: check
+    check: '!contains(store.id_type[0].type, "Nullable")'
+    failure_message: "expected id NOT Nullable, got {store.id_type[0].type}"
+
+  - type: query
+    connection: clickhouse
+    query: |
+      SELECT type FROM system.columns
+      WHERE database = 'default' AND table = 'ch_ddl_dest' AND name = 'name'
+    into: name_type
+
+  - type: check
+    check: '!contains(store.name_type[0].type, "Nullable")'
+    failure_message: "expected name NOT Nullable, got {store.name_type[0].type}"
+
+  - type: query
+    connection: clickhouse
+    query: |
+      SELECT type FROM system.columns
+      WHERE database = 'default' AND table = 'ch_ddl_dest' AND name = 'notes'
+    into: notes_type
+
+  - type: check
+    check: contains(store.notes_type[0].type, "Nullable")
+    failure_message: "expected notes Nullable, got {store.notes_type[0].type}"
+
+  # 3. Inline column index modifiers — index / unique_index
+  - type: query
+    connection: postgres
+    query: |
+      DROP TABLE IF EXISTS public.idx_ddl_src;
+      CREATE TABLE public.idx_ddl_src (id bigint, email text, region text);
+      INSERT INTO public.idx_ddl_src (id, email, region) VALUES
+      (1, 'a@x.com', 'us'),
+      (2, 'b@x.com', 'eu'),
+      (3, 'c@x.com', 'us');
+
+  - type: query
+    connection: postgres
+    query: DROP TABLE IF EXISTS public.idx_ddl_dest
+
+  - type: replication
+    id: repl_inline_index
+    replication:
+      source: postgres
+      target: postgres
+      defaults:
+        mode: full-refresh
+      streams:
+        public.idx_ddl_src:
+          object: public.idx_ddl_dest
+          columns:
+            id: bigint not_null
+            email: text unique_index
+            region: text index
+
+  - type: check
+    check: state.repl_inline_index.status == "success"
+    failure_message: "inline-index replication failed: {state.repl_inline_index.error}"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'idx_ddl_dest' AND indexdef ILIKE '%region%'
+      AND indexdef NOT ILIKE '%UNIQUE%'
+    into: region_idx
+
+  - type: check
+    check: int_parse(store.region_idx[0].cnt) >= 1
+    failure_message: "expected a plain index on region"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'idx_ddl_dest' AND indexdef ILIKE '%email%'
+      AND indexdef ILIKE '%UNIQUE%'
+    into: email_idx
+
+  - type: check
+    check: int_parse(store.email_idx[0].cnt) >= 1
+    failure_message: "expected a UNIQUE index on email"
+
+  # 4. table_keys.index list form — composite + expression + partial-unique
+  - type: query
+    connection: postgres
+    query: |
+      DROP TABLE IF EXISTS public.tk_idx_src;
+      CREATE TABLE public.tk_idx_src (id bigint, org_id text, name text, deleted_at timestamp);
+      INSERT INTO public.tk_idx_src (id, org_id, name, deleted_at) VALUES
+      (1, 'org1', 'Alice', NULL),
+      (2, 'org1', 'Bob', NULL),
+      (3, 'org2', 'Carol', now());
+
+  - type: query
+    connection: postgres
+    query: DROP TABLE IF EXISTS public.tk_idx_dest
+
+  - type: replication
+    id: repl_table_keys
+    replication:
+      source: postgres
+      target: postgres
+      defaults:
+        mode: full-refresh
+      streams:
+        public.tk_idx_src:
+          object: public.tk_idx_dest
+          target_options:
+            table_keys:
+              index:
+                - idx_org_name: [org_id, name]
+                - idx_lower_name:
+                    expression: LOWER(name)
+                - idx_active:
+                    columns: [id]
+                    unique: true
+                    where: deleted_at IS NULL
+
+  - type: check
+    check: state.repl_table_keys.status == "success"
+    failure_message: "table_keys replication failed: {state.repl_table_keys.error}"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'tk_idx_dest' AND indexname = 'idx_org_name'
+    into: comp_idx
+
+  - type: check
+    check: int_parse(store.comp_idx[0].cnt) == 1
+    failure_message: "expected composite index idx_org_name"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'tk_idx_dest' AND indexname = 'idx_lower_name'
+      AND indexdef ILIKE '%lower%'
+    into: expr_idx
+
+  - type: check
+    check: int_parse(store.expr_idx[0].cnt) == 1
+    failure_message: "expected expression index idx_lower_name on LOWER(name)"
+
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'tk_idx_dest' AND indexname = 'idx_active'
+      AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%deleted_at%'
+    into: partial_idx
+
+  - type: check
+    check: int_parse(store.partial_idx[0].cnt) == 1
+    failure_message: "expected partial unique index idx_active"
+
+  # 4b. table_keys.index anonymous shapes — single column, composite list, and
+  # a composite mixing a plain column with a raw SQL expression (LOWER(col2)).
+  - type: query
+    connection: postgres
+    query: |
+      DROP TABLE IF EXISTS public.anon_idx_src;
+      CREATE TABLE public.anon_idx_src (search_col text, col1 text, col2 text);
+      INSERT INTO public.anon_idx_src (search_col, col1, col2) VALUES
+      ('a', 'x', 'Foo'),
+      ('b', 'y', 'BAR'),
+      ('c', 'z', 'baz');
+
+  - type: query
+    connection: postgres
+    query: DROP TABLE IF EXISTS public.anon_idx_dest
+
+  - type: replication
+    id: repl_anon_index
+    replication:
+      source: postgres
+      target: postgres
+      defaults:
+        mode: full-refresh
+      streams:
+        public.anon_idx_src:
+          object: public.anon_idx_dest
+          target_options:
+            table_keys:
+              index:
+                - search_col
+                - [col1, col2]
+                - [col1, "LOWER(col2)"]
+
+  - type: check
+    check: state.repl_anon_index.status == "success"
+    failure_message: "anonymous-index replication failed: {state.repl_anon_index.error}"
+
+  # exactly 3 indexes were created on the fresh table
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes WHERE tablename = 'anon_idx_dest'
+    into: anon_cnt
+
+  - type: check
+    check: int_parse(store.anon_cnt[0].cnt) == 3
+    failure_message: "expected 3 anonymous indexes on anon_idx_dest, got {store.anon_cnt[0].cnt}"
+
+  # 1. single-column index on search_col
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'anon_idx_dest' AND indexdef ILIKE '%(search_col)%'
+    into: anon_single
+
+  - type: check
+    check: int_parse(store.anon_single[0].cnt) == 1
+    failure_message: "expected single-column index on search_col"
+
+  # 2. plain composite index on (col1, col2)
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'anon_idx_dest'
+      AND indexdef ILIKE '%(col1, col2)%'
+    into: anon_comp
+
+  - type: check
+    check: int_parse(store.anon_comp[0].cnt) == 1
+    failure_message: "expected composite index on (col1, col2)"
+
+  # 3. composite index mixing a column with a LOWER(col2) expression
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'anon_idx_dest'
+      AND indexdef ILIKE '%col1%' AND indexdef ILIKE '%lower(col2)%'
+    into: anon_expr
+
+  - type: check
+    check: int_parse(store.anon_expr[0].cnt) == 1
+    failure_message: "expected composite index mixing col1 and LOWER(col2)"
+
+  # 5. Reserved-but-unsupported modifier — auto_increment must fail fast at
+  # config prep with a clear "not yet supported" error. on_failure: warn lets
+  # the pipeline continue so the failure (status + message) can be asserted.
+  - type: query
+    connection: postgres
+    query: |
+      DROP TABLE IF EXISTS public.col_unsupp_src;
+      CREATE TABLE public.col_unsupp_src (id bigint, name text);
+      INSERT INTO public.col_unsupp_src (id, name) VALUES (1, 'a');
+
+  - type: query
+    connection: postgres
+    query: DROP TABLE IF EXISTS public.col_unsupp_dest
+
+  - type: replication
+    id: repl_unsupported
+    on_failure: warn
+    replication:
+      source: postgres
+      target: postgres
+      defaults:
+        mode: full-refresh
+      streams:
+        public.col_unsupp_src:
+          object: public.col_unsupp_dest
+          columns:
+            id: bigint not_null auto_increment
+            name: text
+
+  - type: check
+    check: state.repl_unsupported.status != "success"
+    failure_message: "expected unsupported modifier to fail, got status={state.repl_unsupported.status}"
+
+  - type: check
+    check: contains(state.repl_unsupported.error, "not yet supported")
+    failure_message: "expected 'not yet supported' error, got {state.repl_unsupported.error}"
+
+  # 6. Cleanup
+  - type: log
+    message: "SUCCESS: column DDL constraints & indexes pipeline passed"
+
+  - type: query
+    connection: postgres
+    query: |
+      DROP TABLE IF EXISTS public.col_ddl_src;
+      DROP TABLE IF EXISTS public.col_ddl_dest;
+      DROP TABLE IF EXISTS public.ch_ddl_src;
+      DROP TABLE IF EXISTS public.idx_ddl_src;
+      DROP TABLE IF EXISTS public.idx_ddl_dest;
+      DROP TABLE IF EXISTS public.tk_idx_src;
+      DROP TABLE IF EXISTS public.tk_idx_dest;
+      DROP TABLE IF EXISTS public.anon_idx_src;
+      DROP TABLE IF EXISTS public.anon_idx_dest;
+      DROP TABLE IF EXISTS public.col_unsupp_src;
+      DROP TABLE IF EXISTS public.col_unsupp_dest;
+    on_failure: warn
+
+  - type: query
+    connection: clickhouse
+    query: DROP TABLE IF EXISTS default.ch_ddl_dest
+    on_failure: warn

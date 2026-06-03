@@ -298,6 +298,9 @@ func (conn *BigQueryConn) GenerateDDL(table Table, data iop.Dataset, temporary b
 	}
 	sql = strings.ReplaceAll(sql, "{cluster_by}", clusterBy)
 
+	// column descriptions (no general CREATE INDEX in BigQuery)
+	sql = appendColumnComments(strings.TrimSpace(sql), conn, table, data, temporary)
+
 	return strings.TrimSpace(sql), nil
 }
 

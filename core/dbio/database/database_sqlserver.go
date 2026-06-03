@@ -503,8 +503,16 @@ func (conn *MsSQLServerConn) GenerateDDL(table Table, data iop.Dataset, temporar
 		return ddl, g.Error(err)
 	}
 
-	for _, index := range table.Indexes(data.Columns) {
-		ddl = ddl + ";\n" + index.CreateDDL()
+	if !temporary {
+		for _, index := range table.Indexes(data.Columns) {
+			if idxDDL := index.CreateDDL(); idxDDL != "" {
+				ddl = ddl + ";\n" + idxDDL
+			}
+		}
+
+		for _, stmt := range table.ColumnCommentsDDL(conn, data.Columns) {
+			ddl = ddl + ";\n" + stmt
+		}
 	}
 
 	return ddl, nil

@@ -2573,6 +2573,10 @@ func (conn *BaseConn) GenerateDDL(table Table, data iop.Dataset, temporary bool)
 
 		columnDDL := conn.Template().Quote(col.Name) + " " + nativeType
 
+		// explicit DDL declared via the columns: modifier DSL applies at CREATE
+		// time regardless of schema-migration
+		colExplicit := col.IsDDLExplicit() && !temporary
+
 		// Add schema migration attributes when enabled and not temporary
 		if sm.IsEnabled() && !temporary {
 			// Auto-increment (before NOT NULL)
@@ -2581,11 +2585,6 @@ func (conn *BaseConn) GenerateDDL(table Table, data iop.Dataset, temporary bool)
 				if autoIncSyntax != "" {
 					columnDDL += " " + autoIncSyntax
 				}
-			}
-
-			// NOT NULL for non-nullable columns
-			if sm.HasNullableEnabled() && !col.IsNullable() {
-				columnDDL += " NOT NULL"
 			}
 
 			// DEFAULT value (skip for auto-increment columns)
@@ -2600,13 +2599,33 @@ func (conn *BaseConn) GenerateDDL(table Table, data iop.Dataset, temporary bool)
 			}
 		}
 
+		// NOT NULL for non-nullable columns (schema-migration nullable gate OR explicit modifier).
+		dialectNoNotNull := g.In(conn.Self().GetType(), dbio.TypeDbClickhouse, dbio.TypeDbProton)
+		if !temporary && !col.IsNullable() && !dialectNoNotNull && (sm.HasNullableEnabled() || colExplicit) {
+			columnDDL += " NOT NULL"
+		}
+
+		// UNIQUE column constraint (explicit modifier, or schema-migration unique gate)
+		if !temporary && col.HasUniqueConstraint() && (colExplicit || sm.HasUniqueEnabled()) {
+			columnDDL += " UNIQUE"
+		}
+
 		columnsDDL = append(columnsDDL, columnDDL)
 	}
 
 	// Add PRIMARY KEY constraint for columns marked as primary key (when not temporary)
 	if !temporary {
 		var pkCols []string
-		if sm.HasPrimaryKeyEnabled() || sm.HasForeignKeyEnabled() {
+		// explicit PK via columns: DSL applies regardless of schema-migration
+		hasExplicitPK := false
+		for _, col := range columns {
+			if col.IsPrimaryKey() && col.IsDDLExplicit() {
+				hasExplicitPK = true
+				break
+			}
+		}
+
+		if sm.HasPrimaryKeyEnabled() || sm.HasForeignKeyEnabled() || hasExplicitPK {
 			isMySQLLike := conn.Self().GetType().IsMySQLLike()
 			for _, col := range columns {
 				if col.IsPrimaryKey() {
