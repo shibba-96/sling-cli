@@ -131,6 +131,74 @@ func TestDuckDb(t *testing.T) {
 	})
 }
 
+// TestDuckDbNoDeadlock guards against the reader hanging forever on the result
+// pipe (holding the lock and stalling all subsequent queries).
+func TestDuckDbNoDeadlock(t *testing.T) {
+
+	// run fn with a hard deadline; fails (not hangs) if it does not return in time
+	runWithDeadline := func(t *testing.T, d time.Duration, fn func()) {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			fn()
+		}()
+		select {
+		case <-done:
+		case <-time.After(d):
+			t.Fatal("query did not return in time — reader is deadlocked on the result pipe")
+		}
+	}
+
+	t.Run("context cancellation unblocks reader", func(t *testing.T) {
+		duck := NewDuckDb(context.Background())
+		defer duck.Close()
+
+		// prime the connection
+		_, err := duck.Exec("select 1")
+		assert.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			cancel()
+		}()
+
+		runWithDeadline(t, 30*time.Second, func() {
+			// cancellation must unblock the reader; don't assert on err value
+			_, _ = duck.QueryContext(ctx, "select count(*) from range(1, 100000000000)")
+		})
+
+		// the connection must still be usable afterwards (lock released)
+		runWithDeadline(t, 30*time.Second, func() {
+			data, err := duck.Query("select 42 as n")
+			if assert.NoError(t, err) && assert.Len(t, data.Rows, 1) {
+				assert.Equal(t, int64(42), data.Rows[0][0])
+			}
+		})
+	})
+
+	t.Run("oversized line does not hang", func(t *testing.T) {
+		// a ~200KB line exceeds the scan buffer, so the stdout scanner stops on
+		// bufio.ErrTooLong; the watcher must detect it and unblock the reader.
+		duck := NewDuckDb(context.Background(), "max_buffer_size=1024")
+
+		runWithDeadline(t, 30*time.Second, func() {
+			_, err := duck.Query("select repeat('x', 200000) as big")
+			assert.Error(t, err)
+		})
+
+		// new connection with normal buffer must work fine (sanity)
+		duck2 := NewDuckDb(context.Background())
+		defer duck2.Close()
+		runWithDeadline(t, 30*time.Second, func() {
+			data, err := duck2.Query("select 7 as n")
+			if assert.NoError(t, err) && assert.Len(t, data.Rows, 1) {
+				assert.Equal(t, int64(7), data.Rows[0][0])
+			}
+		})
+	})
+}
+
 func TestDuckDbStreamArrow(t *testing.T) {
 	t.Run("StreamArrow basic query", func(t *testing.T) {
 		duck := NewDuckDb(context.Background())
