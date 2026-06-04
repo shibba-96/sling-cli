@@ -1220,21 +1220,19 @@ func (t *Table) ColumnCommentsDDL(conn Connection, columns iop.Columns) (stmts [
 	return stmts
 }
 
+var createTableRegex = regexp.MustCompile(`(?i)create\s+(?:temp\s+|temporary\s+)?table`)
+
 func (t *Table) AddPrimaryKeyToDDL(ddl string, columns iop.Columns) (string, error) {
 
 	if pkCols := columns.GetKeys(iop.PrimaryKey); len(pkCols) > 0 {
 		ddl = strings.TrimSpace(ddl)
 
-		// Find the closing parenthesis of the column definitions
-		// We need to find the first balanced closing paren that matches the opening
-		// paren of the CREATE TABLE column list, not just the last paren in the DDL
-		// This handles cases like: CREATE TABLE t (col1 int) WITH (data_compression=page)
-
-		// Find "CREATE TABLE" pattern to locate start of statement
-		createTableIdx := strings.Index(strings.ToUpper(ddl), "CREATE TABLE")
-		if createTableIdx == -1 {
+		// anchor on the CREATE [TEMP|TEMPORARY] TABLE keyword to start the column-list search
+		loc := createTableRegex.FindStringIndex(ddl)
+		if loc == nil {
 			return ddl, g.Error("could not find CREATE TABLE in DDL")
 		}
+		createTableIdx := loc[0]
 
 		// Find the opening paren after CREATE TABLE (this is the column list)
 		openParen := strings.Index(ddl[createTableIdx:], "(")

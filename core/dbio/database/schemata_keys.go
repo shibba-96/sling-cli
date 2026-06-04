@@ -115,9 +115,12 @@ func indexColumnEntry(token string, knownColumns iop.Columns) (col iop.IndexColu
 		return iop.IndexColumn{Name: token}, true, nil
 	}
 	if len(knownColumns) > 0 {
-		if c := knownColumns.GetColumn(token); c == nil {
+		c := knownColumns.GetColumn(token)
+		if c == nil {
 			return col, false, g.Error("index references unknown column %q\navailable: %s", token, g.Marshal(knownColumns.Names()))
 		}
+		// use the resolved column's actual casing (e.g. Oracle folds to upper)
+		token = c.Name
 	}
 	return iop.IndexColumn{Name: token}, false, nil
 }
@@ -306,10 +309,8 @@ func (ti *TableIndex) indexDef() iop.IndexDef {
 	return def
 }
 
-// CreateDDL renders the CREATE INDEX statement for the dialect, honoring the
-// §3.1 capability matrix: unsupported attributes are dropped with a one-time
-// warning, and a closed-set `type` violation returns empty (the caller has
-// already validated; this method warns and renders best-effort).
+// CreateDDL renders the CREATE INDEX statement for the dialect; unsupported
+// attributes are dropped with a warning, a closed-set type violation returns "".
 func (ti *TableIndex) CreateDDL() string {
 	dialect := ti.Table.Dialect
 	def := ti.indexDef()
@@ -464,27 +465,21 @@ func (t *Table) Indexes(columns iop.Columns) (indexes []TableIndex) {
 }
 
 // indexCapability describes, per engine, which index attributes are rendered,
-// silently dropped (with a warning), or rejected. It is the single Go-side
-// source of truth for the §3.1 coverage matrix; the actual statement placement
-// of `type` lives in each engine's template (create_index_full).
+// dropped (with a warning), or rejected.
 type indexCapability struct {
-	// noIndexes: engine has no secondary index concept; the whole index is a
-	// no-op (accepted + one-time warning, never an error).
-	noIndexes bool
+	noIndexes bool // no standalone CREATE INDEX; the whole index is a no-op
 
 	supportsWhere   bool // partial index predicate
 	supportsInclude bool // covering-index columns
 	supportsUnique  bool // UNIQUE keyword
 
-	// supportsType: engine accepts a `type`/`using` clause. When typeClosedSet
-	// is non-nil, an unknown value is a hard error; otherwise the value is
-	// passed through to the engine verbatim.
+	// supportsType: engine accepts a type/using clause. When typeClosedSet is
+	// non-nil, an unknown value is a hard error; else passed through verbatim.
 	supportsType  bool
-	typeClosedSet []string // closed set of recognized type values (lowercased)
+	typeClosedSet []string // recognized type values (lowercased)
 }
 
-// indexCapabilities encodes the §3.1 matrix. Engines absent from this map use
-// indexCapDefault (basic CREATE INDEX, no extras).
+// Engines absent from this map use indexCapDefault (basic CREATE INDEX).
 var indexCapabilities = map[dbio.Type]indexCapability{
 	dbio.TypeDbPostgres: {supportsWhere: true, supportsInclude: true, supportsUnique: true, supportsType: true},
 	dbio.TypeDbRedshift: {noIndexes: true},
@@ -494,10 +489,18 @@ var indexCapabilities = map[dbio.Type]indexCapability{
 		supportsWhere: true, supportsInclude: true, supportsUnique: true,
 		supportsType: true, typeClosedSet: []string{"clustered", "nonclustered"},
 	},
-	dbio.TypeDbClickhouse: {supportsType: true}, // handled inline in create_table
-	dbio.TypeDbProton:     {supportsType: true},
+	// ClickHouse data-skipping indexes are declared inline in CREATE TABLE
+	// (see injectInlineIndexes); standalone CREATE INDEX is unsupported, so the
+	// standalone path is a no-op here.
+	dbio.TypeDbClickhouse: {noIndexes: true},
+	dbio.TypeDbProton:     {noIndexes: true},
 	dbio.TypeDbSnowflake:  {noIndexes: true},
-	dbio.TypeDbBigQuery:   {supportsType: true, typeClosedSet: []string{"search"}},
+	// BigQuery has no plain secondary index (only CREATE SEARCH/VECTOR INDEX,
+	// not generated here); treat table_keys.index as a no-op.
+	dbio.TypeDbBigQuery: {noIndexes: true},
+	// StarRocks indexes (BITMAP/inverted) only apply to specific column/table
+	// models and don't fit the generic CREATE INDEX form; no-op for now.
+	dbio.TypeDbStarRocks: {noIndexes: true},
 	dbio.TypeDbDuckDb:     {supportsUnique: true},
 	dbio.TypeDbMotherDuck: {supportsUnique: true},
 	dbio.TypeDbOracle:     {supportsUnique: true, supportsType: true, typeClosedSet: []string{"bitmap"}},
