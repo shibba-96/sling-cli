@@ -1634,6 +1634,10 @@ func SQLColumns(colTypes []ColumnType, conn Connection) (columns iop.Columns) {
 				} else {
 					col.Sourced = true
 				}
+			} else if g.In(conn.Self().GetType(), dbio.TypeDbSQLServer, dbio.TypeDbAzure, dbio.TypeDbFabric, dbio.TypeDbAzureDWH) {
+				// these expose reliable numeric_precision/scale even when small
+				// https://github.com/slingdata-io/sling-cli/issues/720
+				col.Sourced = col.DbPrecision > 0
 			} else {
 				col.Sourced = false
 			}
