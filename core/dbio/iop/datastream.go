@@ -1282,6 +1282,7 @@ func (ds *Datastream) ConsumeCsvReaderChl(readerChn chan *ReaderReady) (err erro
 
 	c := CSV{
 		NoHeader:        !ds.config.Header,
+		SkipLines:       ds.config.SkipLines,
 		FieldsPerRecord: ds.config.FieldsPerRec,
 		Escape:          ds.config.Escape,
 		Quote:           ds.config.Quote,
@@ -1491,6 +1492,7 @@ func (ds *Datastream) ConsumeCsvReader(reader io.Reader) (err error) {
 	c := CSV{
 		Reader:          reader,
 		NoHeader:        !ds.config.Header,
+		SkipLines:       ds.config.SkipLines,
 		FieldsPerRecord: ds.config.FieldsPerRec,
 		Escape:          ds.config.Escape,
 		Quote:           ds.config.Quote,
