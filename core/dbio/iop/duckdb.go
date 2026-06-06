@@ -511,12 +511,20 @@ func (duck *DuckDb) Close() error {
 	case <-timer.C:
 		if duck.Proc.Cmd != nil {
 			g.Debug("killing pid %s", duck.Proc.Cmd.Process.Pid)
-			duck.Proc.Cmd.Process.Kill()
+			duck.kill()
 		}
 	}
 	duck.Proc.Cmd = nil
 
 	return nil
+}
+
+// kill kills the DuckDB process to abort an in-flight query; the next query re-opens a fresh process
+func (duck *DuckDb) kill() {
+	duck.SetProp("connected", "false")
+	if duck.Proc != nil && duck.Proc.Cmd != nil && duck.Proc.Cmd.Process != nil {
+		duck.Proc.Cmd.Process.Kill()
+	}
 }
 
 // Exec executes a SQL query and returns the result
@@ -708,6 +716,7 @@ func (duck *DuckDb) newQuery(ctx context.Context, sql string) (query *duckDbQuer
 				dq.err = err
 				dq.writer.CloseWithError(err)
 				dq.reader.CloseWithError(err)
+				duck.kill() // kill the proc so it won't block subsequent queries
 				return
 			case <-ticker.C:
 				if duck.Proc != nil && !dq.done && (duck.Proc.Exited() || duck.Proc.ScanErr != nil) {
