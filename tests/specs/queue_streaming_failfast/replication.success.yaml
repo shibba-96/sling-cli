@@ -4,7 +4,7 @@ source: QUEUE_STREAM_TEST
 target: local
 
 env:
-  SLING_THREADS: "6" # both producers + 4 children run concurrently
+  SLING_THREADS: "8" # all producers + children run concurrently
   OUT_DIR: ${OUT_DIR}
 
 defaults:
@@ -18,3 +18,5 @@ streams:
   search2: {}
   details2_a: {}
   details2_b: {}
+  list_c: {}      # regular (non-queue_only) producer that also feeds queue.item_ids3
+  details_c: {}   # consume: immediate child of list_c (regression for queue done-sentinel)

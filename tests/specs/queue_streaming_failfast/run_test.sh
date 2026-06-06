@@ -84,12 +84,13 @@ if ! run_sling run -d -r replication.success.yaml; then
 fi
 stop_server
 
-for child in details_a details_b details2_a details2_b; do
+# details_c tails a non-queue_only producer (list_c); it must not hang
+for child in details_a details_b details2_a details2_b details_c; do
   n=$(count_records "$OUT_DIR/$child.json")
   echo "  $child => $n records"
   [[ "$n" == "$NUM_ITEMS" ]] || fail "$child produced $n records, expected $NUM_ITEMS (broadcast/count mismatch)"
 done
-echo "SUCCESS PATH OK: all 4 children produced $NUM_ITEMS records each"
+echo "SUCCESS PATH OK: all 5 children produced $NUM_ITEMS records each"
 
 # ---------------------------------------------------------------------------
 echo "=== [2/2] fail-fast path: fail group 1 only; group 2 must survive ==="

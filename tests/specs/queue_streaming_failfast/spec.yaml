@@ -104,3 +104,35 @@ endpoints:
       records:
         jmespath: "@"
         primary_key: ["id"]
+
+  # ---- Group 3: list_c is a REGULAR record-emitting producer (NOT queue_only)
+  # that also populates queue.item_ids3; details_c tails it with consume:
+  # immediate. Regression for: non-queue_only producers must signal queue done. ----
+  list_c:
+    request:
+      url: "{state.base_url}/search"
+      method: GET
+    response:
+      records:
+        jmespath: "results"
+        primary_key: ["id"]
+      processors:
+        - expression: "record.id"
+          output: "queue.item_ids3"
+
+  details_c:
+    iterate:
+      over: "queue.item_ids3"
+      into: "state.item_id"
+      consume: immediate
+      concurrency: 3
+    request:
+      url: "{state.base_url}/detail"
+      method: GET
+      parameters:
+        id: "{state.item_id}"
+        grp: "3"
+    response:
+      records:
+        jmespath: "@"
+        primary_key: ["id"]
