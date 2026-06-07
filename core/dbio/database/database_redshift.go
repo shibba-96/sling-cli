@@ -82,6 +82,9 @@ func (conn *RedshiftConn) GenerateDDL(table Table, data iop.Dataset, temporary b
 	}
 	sql = strings.ReplaceAll(sql, "{sort_key}", sortKey)
 
+	// column comments (Redshift has no secondary indexes)
+	sql = appendColumnComments(strings.TrimSpace(sql), conn, table, data, temporary)
+
 	return strings.TrimSpace(sql), nil
 }
 

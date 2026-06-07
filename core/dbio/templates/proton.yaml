@@ -18,6 +18,9 @@ core:
       )
 
   # Proton only supports insert (streaming database, no updates or deletes)
+  # Proton is a streaming engine and does not support correlated NOT EXISTS /
+  # NOT IN subqueries against the target stream, so a skip-existing guard is not
+  # possible here. Left as a plain INSERT.
   merge_insert: |
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM table({src_table}) src

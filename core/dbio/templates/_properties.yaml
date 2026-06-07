@@ -6,31 +6,39 @@ oracle:
   kind: database
   required: ["host", "port", "username"]
   url_template: ['oracle://{username}:{password}@{host}:{port}/{sid}', 'oracle://{username}:{password}@{tns}']
+  docs: https://docs.slingdata.io/connections/database-connections/oracle
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: ORCL_FINANCE'
+      examples: ['ORCL_FINANCE', 'ORACLE_PROD', 'ORA_ANALYTICS']
     sid:
       type: text
       title: SID or Service Name
       description: 'The Oracle System ID / Service Name of the instance'
+      examples: ['ORCL', 'XE', 'ORCLPDB1']
     tns:
       type: text
       description: 'The Oracle TNS string of the instance'
+      examples: ['(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=hostname)(PORT=1521))(CONNECT_DATA=(SID=ORCL)))']
     host:
       type: text
       description: 'The hostname / ip of the connection, e.g.: my.server.com or 192.65.43.11'
+      examples: ['oracle.example.com', '192.168.1.100', 'localhost']
     username:
       type: text
       description: 'The username to access the instance'
+      examples: ['hr', 'system', 'myuser']
     password:
       type: text
       description: 'The password to access the instance'
+      examples: ['mypassword123']
       secret: true
     port:
       type: integer
       description: 'The port of the instance'
+      examples: ['1521', '1522']
       default: 1521
 
 snowflake:
@@ -39,76 +47,105 @@ snowflake:
   fields: ["host", "database", "schema", "role", "username", "password", "warehouse"]
   required: ["host", "database", "schema", "role", "username", "password"]
   url_template: 'snowflake://{username}:{password}@{host}.snowflakecomputing.com:443/{database}?schema={schema}&warehouse={warehouse}'
+  docs: https://docs.slingdata.io/connections/database-connections/snowflake
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: DB_MARKETING'
+      examples: ['DB_MARKETING', 'SNOWFLAKE_PROD', 'SF_ANALYTICS']
     host:
       type: text
       description: 'The hostname of the connection, e.g.: pua90768.us-east-11'
+      examples: ['xy12345.us-east-1', 'myorg-myaccount', 'pua90768.us-east-1']
     database:
       type: text
       description: 'The database name of the instance'
+      examples: ['ANALYTICS', 'PRODUCTION', 'DEV']
     role:
       type: text
       description: 'The role name of the user'
+      examples: ['ACCOUNTADMIN', 'SYSADMIN', 'ANALYST']
     warehouse:
       type: text
       description: 'The warehouse name to use'
+      examples: ['COMPUTE_WH', 'ANALYTICS_WH', 'DEV_WH']
     schema:
       type: text
       description: 'The default schema to use when connecting, e.g. public'
+      examples: ['PUBLIC', 'STAGING', 'ANALYTICS']
       default: public
     username:
       type: text
       description: 'The username to access the instance'
+      examples: ['admin', 'myuser', 'analytics_user']
     password:
       type: text
       description: 'The password to access the instance'
+      examples: ['mypassword123']
       secret: true
+    token:
+      type: text
+      description: 'Token for OAuth or PAT (Programmatic Access Token) authentication'
+      examples: ['ver:1-hint:123456-ETMsDgA...']
+      secret: true
+    authenticator:
+      type: dropdown
+      options: ['snowflake', 'externalbrowser', 'snowflake_jwt', 'oauth', 'programmatic_access_token', 'username_password_mfa']
+      description: 'The authentication method to use'
+      examples: ['snowflake', 'programmatic_access_token', 'snowflake_jwt']
 
 redshift:
   title: 'Redshift'
   kind: database
   required: ["host", "port", "database", "username", 'aws_bucket', 'aws_access_key_id', 'aws_secret_access_key']
   url_template: 'redshift://{username}:{password}@{host}:{port}/{database}?sslmode={sslmode}'
+  docs: https://docs.slingdata.io/connections/database-connections/redshift
   properties:
     database:
       type: text
       description: 'The database name of the instance'
+      examples: ['dev', 'production', 'analytics']
     host:
       type: text
       description: 'The hostname of the connection, e.g.: redshift-cluster-1.abcdefg.us-east-1.redshift.amazonaws.com'
+      examples: ['redshift-cluster-1.abcdefg.us-east-1.redshift.amazonaws.com', 'my-redshift.us-west-2.redshift.amazonaws.com']
     username:
       type: text
       description: 'The username to access the instance'
+      examples: ['admin', 'analyst', 'etl_user']
     password:
       type: text
       description: 'The password to access the instance'
+      examples: ['mypassword123']
       secret: true
     port:
       type: integer
       description: 'The port of the instance'
+      examples: ['5439']
       default: 5439
     sslmode:
       type: dropdown
       options: ['disable', 'require']
       title: SSL mode
       description: the SSL mode to use when connection
+      examples: ['disable', 'require']
       default: disable
     aws_bucket:
       type: text
       title: Bucket name
       description: The name of the S3 Bucket for Bulk Loading
+      examples: ['my-redshift-bucket', 'etl-staging-bucket']
     aws_access_key_id:
       type: text
       title: AWS Access Key
       description: The AWS Access Key ID to access the bucket for Bulk Loading
+      examples: ['AKIAIOSFODNN7EXAMPLE']
     aws_secret_access_key:
       type: text
       title: AWS Secret Key
       description: The AWS Secret Key to access the bucket for Bulk Loading
+      examples: ['wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY']
       secret: true
 
 postgres:
@@ -116,33 +153,85 @@ postgres:
   kind: database
   required: ["host", "port", "database", "username"]
   url_template: 'postgresql://{username}:{password}@{host}:{port}/{database}?sslmode={sslmode}'
+  docs: https://docs.slingdata.io/connections/database-connections/postgres
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: PG_MARKETING'
+      examples: ['PG_MARKETING', 'POSTGRES_PROD', 'PG_ANALYTICS']
     database:
       type: text
       description: 'The database name of the instance'
+      examples: ['mydb', 'production', 'analytics']
     host:
       type: text
       description: 'The hostname / ip of the connection, e.g.: my.server.com or 192.65.43.11'
+      examples: ['localhost', '192.168.1.100', 'postgres.example.com']
     username:
       type: text
       description: 'The username to access the instance'
+      examples: ['postgres', 'myuser', 'admin']
     password:
       type: text
       description: 'The password to access the instance'
+      examples: ['mypassword123']
       secret: true
     port:
       type: integer
       description: 'The port of the instance'
+      examples: ['5432']
       default: 5432
     sslmode:
       type: dropdown
       options: ['disable', 'require']
       title: SSL mode to use
+      examples: ['disable', 'require']
       default: disable
+    gcp_project:
+      type: text
+      title: GCP Project ID (for Cloud SQL)
+      description: 'The GCP project ID containing the Cloud SQL instance'
+      examples: ['my-gcp-project', 'analytics-prod', 'data-warehouse-123']
+    gcp_region:
+      type: text
+      title: GCP Region (for Cloud SQL)
+      description: 'The GCP region where the Cloud SQL instance is located'
+      examples: ['us-central1', 'us-east1', 'europe-west1']
+    gcp_instance:
+      type: text
+      title: Cloud SQL Instance Name
+      description: 'The Cloud SQL instance name (when using Cloud SQL IAM authentication)'
+      examples: ['my-postgres-instance', 'prod-pg-instance', 'analytics-db']
+    gcp_use_iam_auth:
+      type: boolean
+      title: Use Cloud SQL IAM Authentication
+      description: 'Enable Google Cloud SQL IAM authentication instead of password'
+      examples: [true, false]
+      default: false
+    gcp_use_private_ip:
+      type: boolean
+      title: Use Private IP (for Cloud SQL)
+      description: 'Use private IP instead of public IP for Cloud SQL connection'
+      examples: [true, false]
+      default: false
+    gcp_credentials_file:
+      type: text
+      title: GCP Credentials File Path
+      description: 'Path to GCP service account JSON key file (optional, uses ADC if not provided)'
+      examples: ['/path/to/service-account.json', './credentials/gcp-key.json']
+    gcp_credentials_json:
+      type: text
+      title: GCP Credentials JSON
+      description: 'GCP service account JSON content as string (alternative to file path)'
+      examples: ['{"type":"service_account",...}']
+      secret: true
+    gcp_lazy_refresh:
+      type: boolean
+      title: Enable Lazy Refresh (for serverless)
+      description: 'Enable lazy refresh mode for Cloud SQL connections in serverless environments'
+      examples: [true, false]
+      default: false
 
 
 bigquery:
@@ -150,31 +239,38 @@ bigquery:
   kind: database
   required: ["dataset", "project", "credentials_json"]
   url_template: 'bigquery://{project}/{location}/{dataset}'
+  docs: https://docs.slingdata.io/connections/database-connections/bigquery
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: BQ_DWH'
+      examples: ['BQ_DWH', 'BIGQUERY_PROD', 'BQ_ANALYTICS']
     dataset:
       type: text
       title: Dataset ID
       description: 'The BigQuery dataset id'
+      examples: ['analytics', 'staging', 'raw_data']
     project:
       type: text
       title: Project ID
       description: 'The GCP project ID for the project containing the dataset.'
+      examples: ['my-gcp-project', 'analytics-prod', 'data-warehouse-123']
     credentials_json:
       type: text
       title: Upload Service Account JSON
       description: 'Upload Service Account JSON'
+      examples: ['/path/to/service-account.json']
     location:
       type: dropdown
       options: ['asia-east1','asia-east2','asia-northeast1','asia-northeast2','asia-northeast3','asia-south1','asia-southeast1','asia-southeast2','australia-southeast1','europe-north1','europe-west1','europe-west2','europe-west3','europe-west4','europe-west6','northamerica-northeast1','southamerica-east1','us-central1','us-east1','us-east4','us-west1','us-west2','us-west3','us-west4']
       description: The dataset regional location
+      examples: ['US', 'EU', 'us-central1']
     gc_bucket:
       type: text
       title: Google Cloud Bucket
       description: The name of the Google Cloud Storage Bucket
+      examples: ['my-gcs-bucket', 'bigquery-staging', 'etl-bucket']
 
 
 mysql:
@@ -182,83 +278,190 @@ mysql:
   kind: database
   required: ["host", "port", "database", "username"]
   url_template: 'mysql://{username}:{password}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/mysql
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: DB_MARKETING'
+      examples: ['DB_MARKETING', 'MYSQL_PROD', 'MY_ANALYTICS']
     database:
       type: text
       description: 'The database name of the instance'
+      examples: ['mydb', 'production', 'ecommerce']
     host:
       type: text
       description: 'The hostname / ip of the connection, e.g.: my.server.com or 192.65.43.11'
+      examples: ['localhost', '192.168.1.100', 'mysql.example.com']
     username:
       type: text
       description: 'The username to access the instance'
+      examples: ['root', 'admin', 'myuser']
     password:
       type: text
       description: 'The password to access the instance'
+      examples: ['mypassword123']
       secret: true
     port:
       type: integer
       description: 'The port of the instance'
+      examples: ['3306']
       default: 3306
-      
+
+    # Google Cloud SQL IAM Authentication Properties
+    gcp_project:
+      type: text
+      title: GCP Project ID (for Cloud SQL)
+      description: 'The GCP project ID containing the Cloud SQL instance'
+      examples: ['my-gcp-project', 'production-project']
+    gcp_region:
+      type: text
+      title: GCP Region (for Cloud SQL)
+      description: 'The GCP region where the Cloud SQL instance is located'
+      examples: ['us-central1', 'europe-west1', 'asia-southeast1']
+    gcp_instance:
+      type: text
+      title: Cloud SQL Instance Name
+      description: 'The name of the Cloud SQL instance'
+      examples: ['my-mysql-instance', 'production-db']
+    gcp_use_iam_auth:
+      type: boolean
+      title: Use Cloud SQL IAM Authentication
+      description: 'Enable IAM authentication for Cloud SQL connections'
+      default: false
+    gcp_use_private_ip:
+      type: boolean
+      title: Use Private IP (for Cloud SQL)
+      description: 'Connect to Cloud SQL instance using private IP (requires VPC connectivity)'
+      default: false
+    gcp_credentials_file:
+      type: text
+      title: GCP Credentials File Path
+      description: 'Path to GCP service account credentials JSON file'
+      examples: ['/path/to/service-account.json']
+    gcp_credentials_json:
+      type: text
+      title: GCP Credentials JSON
+      description: 'GCP service account credentials as JSON string (alternative to credentials_file)'
+      secret: true
+    gcp_lazy_refresh:
+      type: boolean
+      title: Enable Lazy Refresh (for serverless)
+      description: 'Enable lazy refresh mode for serverless environments (Cloud Run, Cloud Functions)'
+      default: false
+
 sqlserver:
   title: 'MS SQL Server'
   kind: database
   required: ["host", "port", "database", "username"]
   url_template: 'sqlserver://{username}:{password}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/sqlserver
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: DB_MARKETING'
+      examples: ['DB_MARKETING', 'SQLSERVER_PROD', 'MSSQL_ANALYTICS']
     database:
       type: text
       description: 'The database name of the instance'
+      examples: ['master', 'AdventureWorks', 'MyDatabase']
     host:
       type: text
       description: 'The hostname / ip of the connection, e.g.: my.server.com or 192.65.43.11'
+      examples: ['localhost', '192.168.1.100', 'sqlserver.example.com']
     username:
       type: text
       description: 'The username to access the instance'
+      examples: ['sa', 'admin', 'sqluser']
     password:
       type: text
       description: 'The password to access the instance'
+      examples: ['mypassword123']
       secret: true
     port:
       type: integer
       description: 'The port of the instance'
+      examples: ['1433']
       default: 1433
-      
+
+    # Google Cloud SQL Properties (Non-IAM)
+    # Note: Cloud SQL for SQL Server does NOT support IAM authentication
+    # These properties enable Cloud SQL Proxy connectivity with standard SQL Server authentication
+    gcp_project:
+      type: text
+      title: GCP Project ID (for Cloud SQL)
+      description: 'The GCP project ID containing the Cloud SQL instance'
+      examples: ['my-gcp-project', 'production-project']
+    gcp_region:
+      type: text
+      title: GCP Region (for Cloud SQL)
+      description: 'The GCP region where the Cloud SQL instance is located'
+      examples: ['us-central1', 'europe-west1', 'asia-southeast1']
+    gcp_instance:
+      type: text
+      title: Cloud SQL Instance Name
+      description: 'The name of the Cloud SQL instance'
+      examples: ['my-sqlserver-instance', 'production-db']
+    gcp_use_cloud_sql:
+      type: boolean
+      title: Use Cloud SQL Connectivity
+      description: 'Enable Cloud SQL Proxy connectivity (password still required - IAM auth not supported for SQL Server)'
+      default: false
+    gcp_use_private_ip:
+      type: boolean
+      title: Use Private IP (for Cloud SQL)
+      description: 'Connect to Cloud SQL instance using private IP (requires VPC connectivity)'
+      default: false
+    gcp_credentials_file:
+      type: text
+      title: GCP Credentials File Path
+      description: 'Path to GCP service account credentials JSON file'
+      examples: ['/path/to/service-account.json']
+    gcp_credentials_json:
+      type: text
+      title: GCP Credentials JSON
+      description: 'GCP service account credentials as JSON string (alternative to credentials_file)'
+      secret: true
+    gcp_lazy_refresh:
+      type: boolean
+      title: Enable Lazy Refresh (for serverless)
+      description: 'Enable lazy refresh mode for Cloud SQL connections in serverless environments'
+      default: false
+
 azuresql:
   title: 'Azure SQL Server'
   kind: database
   required: ["host", "port", "database", "username"]
   url_template: 'sqlserver://{username}:{password}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/sqlserver
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: DB_MARKETING'
+      examples: ['DB_MARKETING', 'AZURESQL_PROD', 'AZ_ANALYTICS']
     database:
       type: text
       description: 'The database name of the instance'
+      examples: ['mydb', 'production', 'analytics']
     host:
       type: text
       description: 'The hostname, e.g.: my.server.database.windows.net'
+      examples: ['myserver.database.windows.net', 'prod-sql.database.windows.net']
     username:
       type: text
       description: 'The username to access the instance'
+      examples: ['admin', 'sqladmin', 'azureuser']
     password:
       type: text
       description: 'The password to access the instance'
+      examples: ['mypassword123']
       secret: true
     port:
       type: integer
       description: 'The port of the instance'
+      examples: ['1433']
       default: 1433
 
 s3:
@@ -266,87 +469,945 @@ s3:
   kind: file
   required: ["bucket", "access_key_id", "secret_access_key"]
   url_template: 's3://{bucket}'
+  docs: https://docs.slingdata.io/connections/file-connections/s3
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the S3 connection. No spaces are allowed, will be all caps. Example: S3_MAIN'
+      examples: ['S3_MAIN', 'S3_BACKUP', 'S3_ANALYTICS']
     bucket:
       type: text
       title: Bucket name
       description: The name of the S3 Bucket
+      examples: ['my-data-bucket', 'analytics-storage', 'backup-bucket']
     access_key_id:
       type: text
       title: AWS Access Key
       description: The AWS Access Key ID to access the bucket
+      examples: ['AKIAIOSFODNN7EXAMPLE']
     secret_access_key:
       type: text
       title: AWS Secret Key
       description: The AWS Secret Key to access the bucket
+      examples: ['wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY']
       secret: true
     endpoint:
       type: text
       title: Endpoint Hostname
       description: The hostname of the endpoint (e.g. nyc3.digitaloceanspaces.com)
+      examples: ['nyc3.digitaloceanspaces.com', 's3.amazonaws.com']
 
 azure:
   title: 'Azure Storage'
   kind: file
   required: ["account", "sas_svc_url"]
   url_template: 'azure://{account}'
+  docs: https://docs.slingdata.io/connections/file-connections/azure
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: AZ_CSV_ARCHIVE'
+      examples: ['AZ_CSV_ARCHIVE', 'AZURE_BACKUP', 'AZ_STORAGE']
     account:
       type: text
       title: Storage Account Name
       description: The name of the Azure Storage Account
+      examples: ['mystorageaccount', 'prodstorageacct', 'datastorageaz']
     sas_svc_url: 
       title: Azure Shared access signature
       type: text
       description: The Shared access signature to access the storage account
+      examples: ['https://myaccount.blob.core.windows.net/?sv=2019-02-02&ss=bfqt&srt=sco&sp=rwdlacup&se=2020-01-01T00:00:00Z&st=2019-01-01T00:00:00Z&spr=https,http&sig=abcdefghijklmnop']
 
 gs:
   title: 'Google Storage'
   kind: file
   required: ["bucket", "credentials_json"]
   url_template: 'gs://{bucket}'
+  docs: https://docs.slingdata.io/connections/file-connections/gs
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the connection. No spaces are allowed, will be all caps. Example: GS_ARCHIVE'
+      examples: ['GS_ARCHIVE', 'GCS_BACKUP', 'GS_STORAGE']
     bucket:
       type: text
       title: Google Cloud Bucket
       description: The name of the Google Cloud Storage Bucket
+      examples: ['my-gcs-bucket', 'data-lake-bucket', 'backup-storage']
     credentials_json:
       type: upload-google
       title: Upload Service Account JSON
       description: 'Upload Service Account JSON'
+      examples: ['/path/to/service-account.json']
 
 sftp:
   title: 'SFTP'
   kind: file
   required: ["host", "port", "username"]
+  docs: https://docs.slingdata.io/connections/file-connections/sftp
   properties:
     name:
       type: text
       title: Connection Name
       description: 'The name of the SFTP connection. No spaces are allowed, will be all caps. Example: SFTP_BACKUPS'
+      examples: ['SFTP_BACKUPS', 'SFTP_UPLOAD', 'SFTP_MAIN']
     host:
       type: text
       description: 'The hostname or IP of the server'
+      examples: ['sftp.example.com', '192.168.1.50', 'files.mydomain.com']
     username:
       type: text
       description: 'The username to use to access the server'
+      examples: ['ftpuser', 'upload', 'backup_user']
     password:
       type: text
       description: 'Optional: The password to use to access the server'
+      examples: ['mypassword123']
       secret: true
     port:
       type: integer
       description: 'The port of the server'
+      examples: ['22', '2222']
       default: 22
+
+mariadb:
+  title: 'MariaDB'
+  kind: database
+  required: ["host", "port", "database", "username"]
+  url_template: 'mysql://{username}:{password}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/mariadb
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: MDB_MAIN'
+      examples: ['MDB_MAIN', 'MARIADB_PROD', 'MDB_ANALYTICS']
+    database:
+      type: text
+      description: 'The database name of the instance'
+      examples: ['mydb', 'production', 'ecommerce']
+    host:
+      type: text
+      description: 'The hostname / ip of the connection'
+      examples: ['localhost', '192.168.1.100', 'mariadb.example.com']
+    username:
+      type: text
+      description: 'The username to access the instance'
+      examples: ['root', 'admin', 'myuser']
+    password:
+      type: text
+      description: 'The password to access the instance'
+      examples: ['mypassword123']
+      secret: true
+    port:
+      type: integer
+      description: 'The port of the instance'
+      examples: ['3306']
+      default: 3306
+    charset:
+      type: text
+      description: 'Character set to use'
+      examples: ['utf8mb4', 'latin1']
+      default: utf8mb4
+    tls:
+      type: boolean
+      description: 'Enable TLS encryption'
+      examples: [true, false]
+      default: false
+
+duckdb:
+  title: 'DuckDB'
+  kind: database
+  required: ["instance"]
+  url_template: 'duckdb://{instance}'
+  docs: https://docs.slingdata.io/connections/database-connections/duckdb
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: DUCKDB_MAIN'
+      examples: ['DUCKDB_MAIN', 'DUCK_ANALYTICS', 'DDB_LOCAL']
+    instance:
+      type: text
+      description: 'Local file path of the database file'
+      examples: ['/path/to/database.db', './data/mydatabase.duckdb', ':memory:']
+    schema:
+      type: text
+      description: 'Default schema name'
+      examples: ['main', 'staging', 'analytics']
+    read_only:
+      type: boolean
+      description: 'Open connection in readonly mode'
+      examples: [true, false]
+      default: false
+
+motherduck:
+  title: 'MotherDuck'
+  kind: database
+  required: ["token"]
+  url_template: 'motherduck://{token}@{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/motherduck
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: MD_MAIN'
+      examples: ['MD_MAIN', 'MOTHERDUCK_PROD', 'MD_ANALYTICS']
+    token:
+      type: text
+      description: 'MotherDuck authentication token'
+      examples: ['md_abcd1234efgh5678ijkl9012mnop3456']
+      secret: true
+    database:
+      type: text
+      description: 'Database name'
+      examples: ['my_database', 'analytics', 'prod']
+    schema:
+      type: text
+      description: 'Default schema name'
+      examples: ['main', 'staging']
+
+sqlite:
+  title: 'SQLite'
+  kind: database
+  required: ["instance"]
+  url_template: 'sqlite://{instance}'
+  docs: https://docs.slingdata.io/connections/database-connections/sqlite
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: SQLITE_MAIN'
+      examples: ['SQLITE_MAIN', 'SQLITE_LOCAL', 'SL_TEST']
+    instance:
+      type: text
+      description: 'Local file path of the database file'
+      examples: ['/path/to/database.db', './data/sqlite.db', ':memory:']
+    busy_timeout:
+      type: integer
+      description: 'Busy timeout in milliseconds'
+      examples: ['5000', '10000']
+      default: 5000
+
+clickhouse:
+  title: 'ClickHouse'
+  kind: database
+  required: ["host"]
+  url_template: 'clickhouse://{username}:{password}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/clickhouse
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: CH_MAIN'
+      examples: ['CH_MAIN', 'CLICKHOUSE_PROD', 'CH_ANALYTICS']
+    host:
+      type: text
+      description: 'ClickHouse server hostname'
+      examples: ['localhost', 'clickhouse.example.com', '192.168.1.100']
+    port:
+      type: integer
+      description: 'Port number'
+      examples: ['9000', '8123']
+      default: 9000
+    user:
+      type: text
+      description: 'Username for authentication'
+      examples: ['default', 'admin', 'clickhouse_user']
+      default: default
+    password:
+      type: text
+      description: 'Password for authentication'
+      examples: ['mypassword123']
+      secret: true
+    database:
+      type: text
+      description: 'Database name'
+      examples: ['default', 'analytics', 'logs']
+      default: default
+    secure:
+      type: boolean
+      description: 'Use secure connection'
+      examples: [true, false]
+      default: false
+
+mongodb:
+  title: 'MongoDB'
+  kind: database
+  required: ["host", "database"]
+  url_template: 'mongodb://{username}:{password}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/mongodb
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: MONGO_MAIN'
+      examples: ['MONGO_MAIN', 'MONGODB_PROD', 'MDB_DOCUMENTS']
+    host:
+      type: text
+      description: 'MongoDB server hostname'
+      examples: ['localhost', 'mongodb.example.com', 'cluster0.abcde.mongodb.net']
+    port:
+      type: integer
+      description: 'Port number'
+      examples: ['27017']
+      default: 27017
+    user:
+      type: text
+      description: 'Username for authentication'
+      examples: ['admin', 'dbuser', 'mongo_user']
+    password:
+      type: text
+      description: 'Password for authentication'
+      examples: ['mypassword123']
+      secret: true
+    database:
+      type: text
+      description: 'Database name'
+      examples: ['myapp', 'production', 'analytics']
+    auth_source:
+      type: text
+      description: 'Authentication database'
+      examples: ['admin', 'myapp']
+      default: admin
+    ssl:
+      type: boolean
+      description: 'Use SSL connection'
+      examples: [true, false]
+      default: false
+
+databricks:
+  title: 'Databricks'
+  kind: database
+  required: ["host", "token", "http_path"]
+  url_template: 'databricks://{token}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/databricks
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: DBR_MAIN'
+      examples: ['DBR_MAIN', 'DATABRICKS_PROD', 'DBR_ANALYTICS']
+    host:
+      type: text
+      description: 'Databricks hostname'
+      examples: ['dbc-xxxxxxx', 'adbxxxxx']
+    token:
+      type: text
+      description: 'Personal access token'
+      examples: ['xxxxxxxxxxxxx']
+      secret: true
+    http_path:
+      type: text
+      description: 'SQL warehouse HTTP path'
+      examples: ['/sql/1.0/warehouses/abcdef1234567890', '/sql/protocolv1/o/1234567890123456/0123-456789-test123']
+    catalog:
+      type: text
+      description: 'Unity catalog name'
+      examples: ['main', 'hive_metastore', 'analytics_catalog']
+    schema:
+      type: text
+      description: 'Schema name'
+      examples: ['default', 'analytics', 'staging']
+
+trino:
+  title: 'Trino'
+  kind: database
+  required: ["host", "user", "catalog"]
+  url_template: 'trino://{user}@{host}:{port}/{catalog}'
+  docs: https://docs.slingdata.io/connections/database-connections/trino
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: TRINO_MAIN'
+      examples: ['TRINO_MAIN', 'TRINO_PROD', 'TR_ANALYTICS']
+    host:
+      type: text
+      description: 'Trino coordinator hostname'
+      examples: ['trino.example.com', 'localhost', '192.168.1.100']
+    port:
+      type: integer
+      description: 'Port number'
+      examples: ['8080', '443']
+      default: 8080
+    user:
+      type: text
+      description: 'Username'
+      examples: ['admin', 'trino_user', 'analyst']
+    catalog:
+      type: text
+      description: 'Default catalog'
+      examples: ['hive', 'postgresql', 'memory']
+    schema:
+      type: text
+      description: 'Default schema'
+      examples: ['default', 'public', 'analytics']
+
+elasticsearch:
+  title: 'Elasticsearch'
+  kind: database
+  required: ["url"]
+  url_template: 'elasticsearch://{user}:{password}@{url}'
+  docs: https://docs.slingdata.io/connections/database-connections/elasticsearch
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: ES_MAIN'
+      examples: ['ES_MAIN', 'ELASTIC_PROD', 'ES_LOGS']
+    url:
+      type: text
+      description: 'Elasticsearch URL'
+      examples: ['http://localhost:9200', 'https://elasticsearch.example.com:9200', 'https://my-cluster.es.amazonaws.com']
+    user:
+      type: text
+      description: 'Username for authentication'
+      examples: ['elastic', 'admin', 'es_user']
+    password:
+      type: text
+      description: 'Password for authentication'
+      examples: ['mypassword123']
+      secret: true
+    index:
+      type: text
+      description: 'Default index name'
+      examples: ['logs', 'documents', 'analytics']
+
+d1:
+  title: 'Cloudflare D1'
+  kind: database
+  required: ["account_id", "database_id", "token"]
+  url_template: 'd1://{token}@{account_id}/{database_id}'
+  docs: https://docs.slingdata.io/connections/database-connections/d1
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: D1_MAIN'
+      examples: ['D1_MAIN', 'CLOUDFLARE_D1', 'D1_PROD']
+    account_id:
+      type: text
+      description: 'Cloudflare account ID'
+      examples: ['abcdef1234567890abcdef1234567890ab']
+    database_id:
+      type: text
+      description: 'D1 database ID'
+      examples: ['01234567-8901-2345-6789-012345678901']
+    token:
+      type: text
+      description: 'Cloudflare API token'
+      examples: ['abcdef1234567890abcdef1234567890ab_example']
+      secret: true
+
+azuretable:
+  title: 'Azure Table Storage'
+  kind: database
+  required: ["account"]
+  url_template: 'azuretable://{account}'
+  docs: https://docs.slingdata.io/connections/database-connections/azuretable
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: AZT_MAIN'
+      examples: ['AZT_MAIN', 'AZURE_TABLE', 'AZT_STORAGE']
+    account:
+      type: text
+      description: 'Azure storage account name'
+      examples: ['mystorageaccount', 'prodstorageacct']
+    sas_token:
+      type: text
+      description: 'Shared Access Signature token'
+      examples: ['sv=2019-02-02&ss=t&srt=sco&sp=rwdlacup&se=2020-01-01T00:00:00Z&st=2019-01-01T00:00:00Z&spr=https&sig=abcdefghijklmnop']
+      secret: true
+    account_key:
+      type: text
+      description: 'Azure storage account key'
+      examples: ['abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/==']
+      secret: true
+    table_name:
+      type: text
+      description: 'Specific table name for table-specific SAS tokens'
+      examples: ['MyTable', 'LogData', 'UserData']
+
+ftp:
+  title: 'FTP'
+  kind: file
+  required: ["host", "username", "password"]
+  url_template: 'ftp://{username}:{password}@{host}:{port}'
+  docs: https://docs.slingdata.io/connections/file-connections/ftp
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: FTP_MAIN'
+      examples: ['FTP_MAIN', 'FTP_BACKUP', 'FTP_UPLOAD']
+    host:
+      type: text
+      description: 'FTP server hostname'
+      examples: ['ftp.example.com', '192.168.1.50', 'files.mydomain.com']
+    port:
+      type: integer
+      description: 'Port number'
+      examples: ['21', '2121']
+      default: 21
+    user:
+      type: text
+      description: 'Username for authentication'
+      examples: ['ftpuser', 'upload', 'backup_user']
+    password:
+      type: text
+      description: 'Password for authentication'
+      examples: ['mypassword123']
+      secret: true
+    passive:
+      type: boolean
+      description: 'Use passive mode'
+      examples: [true, false]
+      default: true
+
+r2:
+  title: 'Cloudflare R2'
+  kind: file
+  required: ["bucket"]
+  url_template: 'r2://{bucket}'
+  docs: https://docs.slingdata.io/connections/file-connections/r2
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: R2_MAIN'
+      examples: ['R2_MAIN', 'CLOUDFLARE_R2', 'R2_BACKUP']
+    bucket:
+      type: text
+      description: 'R2 bucket name'
+      examples: ['my-r2-bucket', 'data-lake-r2', 'backup-storage-r2']
+    access_key_id:
+      type: text
+      description: 'R2 access key ID'
+      examples: ['abcdef1234567890abcdef12']
+    secret_access_key:
+      type: text
+      description: 'R2 secret access key'
+      examples: ['abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP']
+      secret: true
+    endpoint:
+      type: text
+      description: 'R2 endpoint URL'
+      examples: ['https://abcdef1234567890abcdef1234567890.r2.cloudflarestorage.com']
+    region:
+      type: text
+      description: 'R2 region'
+      examples: ['auto', 'us-east-1']
+
+gdrive:
+  title: 'Google Drive'
+  kind: file
+  required: ["keyfile"]
+  url_template: 'gdrive://'
+  docs: https://docs.slingdata.io/connections/file-connections/gdrive
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: GDRIVE_MAIN'
+      examples: ['GDRIVE_MAIN', 'GOOGLE_DRIVE', 'GD_BACKUP']
+    keyfile:
+      type: text
+      description: 'Path to Service Account JSON file'
+      examples: ['/path/to/service-account.json', './credentials/gdrive-service.json']
+    folder_id:
+      type: text
+      description: 'Google Drive folder ID'
+      examples: ['1AbCdEfGhIjKlMnOpQrStUvWxYz', '0B1234567890abcdefghijklmnop']
+
+local:
+  title: 'Local File System'
+  kind: file
+  required: ["path"]
+  url_template: 'file://{path}'
+  docs: https://docs.slingdata.io/connections/file-connections/local
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: LOCAL_MAIN'
+      examples: ['LOCAL_MAIN', 'LOCAL_DATA', 'FILE_SYSTEM']
+    path:
+      type: text
+      description: 'Local file system path'
+      examples: ['/data', './files', '/home/user/data', 'C:\\Data']
+
+hdfs:
+  title: 'Hadoop HDFS'
+  kind: file
+  required: ["url"]
+  url_template: 'hdfs://{url}'
+  docs: https://docs.slingdata.io/connections/file-connections/hdfs
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: HDFS_MAIN'
+      examples: ['HDFS_MAIN', 'HADOOP_FS', 'HDFS_CLUSTER']
+    url:
+      type: text
+      description: 'HDFS URL'
+      examples: ['hdfs://namenode:9000', 'hdfs://hadoop-cluster.example.com:8020']
+    user:
+      type: text
+      description: 'HDFS user'
+      examples: ['hdfs', 'hadoop', 'datauser']
+
+http:
+  title: 'HTTP/HTTPS'
+  kind: file
+  required: ["url"]
+  url_template: 'http://{url}'
+  docs: https://docs.slingdata.io/connections/file-connections/http
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: HTTP_MAIN'
+      examples: ['HTTP_MAIN', 'WEB_API', 'HTTP_ENDPOINT']
+    url:
+      type: text
+      description: 'HTTP/HTTPS URL'
+      examples: ['https://api.example.com', 'http://files.example.com', 'https://data.mysite.com/api']
+    headers:
+      type: text
+      description: 'HTTP headers'
+      examples: ['Authorization: Bearer token123', 'Content-Type: application/json']
+    auth:
+      type: text
+      description: 'Authentication method'
+      examples: ['bearer', 'basic', 'apikey']
+
+api:
+  title: 'API Connection'
+  kind: api
+  required: ["url"]
+  url_template: 'api://{url}'
+  docs: https://docs.slingdata.io/connections/api-connections/api
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: API_MAIN'
+      examples: ['API_MAIN', 'REST_API', 'WEB_SERVICE']
+    url:
+      type: text
+      description: 'API base URL'
+      examples: ['https://api.example.com', 'https://jsonplaceholder.typicode.com', 'https://api.github.com']
+    headers:
+      type: text
+      description: 'HTTP headers'
+      examples: ['Authorization: Bearer token123', 'X-API-Key: abc123']
+    auth:
+      type: text
+      description: 'Authentication method'
+      examples: ['bearer', 'basic', 'oauth2']
+    token:
+      type: text
+      description: 'API token or key'
+      examples: ['abc123def456ghi789', 'bearer_token_here']
+      secret: true
+
+athena:
+  title: 'AWS Athena'
+  kind: database
+  required: ["region", "database", "s3_staging_dir"]
+  url_template: 'athena://{region}/{database}'
+  docs: https://docs.slingdata.io/connections/datalake-connections/athena
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: ATHENA_MAIN'
+      examples: ['ATHENA_MAIN', 'AWS_ATHENA', 'ATH_ANALYTICS']
+    region:
+      type: text
+      description: 'AWS region'
+      examples: ['us-east-1', 'us-west-2', 'eu-west-1']
+    database:
+      type: text
+      description: 'Athena database name'
+      examples: ['default', 'analytics', 'data_lake']
+    s3_staging_dir:
+      type: text
+      description: 'S3 location for query results'
+      examples: ['s3://my-athena-results/', 's3://query-results-bucket/athena-output/']
+    access_key_id:
+      type: text
+      description: 'AWS access key ID'
+      examples: ['AKIAIOSFODNN7EXAMPLE']
+    secret_access_key:
+      type: text
+      description: 'AWS secret access key'
+      examples: ['wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY']
+      secret: true
+    work_group:
+      type: text
+      description: 'Athena workgroup name'
+      examples: ['primary', 'analytics-workgroup', 'production']
+
+ducklake:
+  title: 'DuckLake'
+  kind: database
+  required: ["path"]
+  url_template: 'ducklake://{path}'
+  docs: https://docs.slingdata.io/connections/datalake-connections/ducklake
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: DUCKLAKE_MAIN'
+      examples: ['DUCKLAKE_MAIN', 'DUCK_LAKE', 'DL_ANALYTICS']
+    path:
+      type: text
+      description: 'DuckLake path'
+      examples: ['s3://my-data-lake/', './data/lake/', '/data/ducklake']
+    format:
+      type: text
+      description: 'Data format'
+      examples: ['parquet', 'delta', 'iceberg']
+
+iceberg:
+  title: 'Apache Iceberg'
+  kind: database
+  required: ["catalog_uri"]
+  url_template: 'iceberg://{catalog_uri}'
+  docs: https://docs.slingdata.io/connections/datalake-connections/iceberg
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: ICEBERG_MAIN'
+      examples: ['ICEBERG_MAIN', 'ICEBERG_CATALOG', 'ICE_ANALYTICS']
+    catalog_uri:
+      type: text
+      description: 'Iceberg catalog URI'
+      examples: ['thrift://localhost:9083', 'jdbc:postgresql://localhost:5432/iceberg', 'rest://catalog-rest-service:8181']
+    warehouse:
+      type: text
+      description: 'Warehouse path'
+      examples: ['s3://my-iceberg-warehouse/', '/data/warehouse/', 'gs://iceberg-warehouse/']
+
+iceberg2:
+  title: 'Apache Iceberg (DuckDB)'
+  kind: database
+  required: ["catalog_type"]
+  url_template: 'iceberg2://{catalog_type}'
+  docs: https://docs.slingdata.io/connections/datalake-connections/iceberg
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: ICEBERG2_MAIN'
+      examples: ['ICEBERG2_MAIN', 'ICEBERG2_CATALOG', 'ICE2_ANALYTICS']
+    catalog_type:
+      type: text
+      description: 'Catalog type: rest, glue, or s3tables'
+      examples: ['rest', 'glue', 's3tables']
+    catalog_name:
+      type: text
+      description: 'Name for the attached catalog (default: iceberg)'
+      examples: ['iceberg', 'my_catalog', 'prod_catalog']
+      default: iceberg
+    rest_uri:
+      type: text
+      description: 'REST catalog endpoint URL (required for rest catalog type)'
+      examples: ['https://catalog.example.com/iceberg', 'http://localhost:8181']
+    rest_warehouse:
+      type: text
+      description: 'Warehouse path for REST catalog'
+      examples: ['s3://my-warehouse/', 'warehouse1']
+    rest_token:
+      type: text
+      description: 'Bearer token for REST catalog authentication'
+      secret: true
+    rest_oauth_client_id:
+      type: text
+      description: 'OAuth2 client ID for REST catalog'
+    rest_oauth_client_secret:
+      type: text
+      description: 'OAuth2 client secret for REST catalog'
+      secret: true
+    rest_oauth_server_uri:
+      type: text
+      description: 'OAuth2 server URI for token endpoint'
+      examples: ['https://auth.example.com/oauth/token']
+    rest_oauth_scope:
+      type: text
+      description: 'OAuth2 scope (optional)'
+    glue_account_id:
+      type: text
+      description: 'AWS account ID (required for glue catalog type)'
+      examples: ['123456789012']
+    glue_region:
+      type: text
+      description: 'AWS region for Glue catalog'
+      examples: ['us-east-1', 'eu-west-1']
+    s3_tables_arn:
+      type: text
+      description: 'S3 Tables ARN (required for s3tables catalog type)'
+      examples: ['arn:aws:s3tables:us-east-1:123456789012:bucket/my-bucket']
+    s3_access_key_id:
+      type: text
+      description: 'AWS access key ID for S3 storage'
+    s3_secret_access_key:
+      type: text
+      description: 'AWS secret access key for S3 storage'
+      secret: true
+    s3_region:
+      type: text
+      description: 'AWS region for S3 storage'
+      examples: ['us-east-1', 'eu-west-1']
+    s3_session_token:
+      type: text
+      description: 'AWS session token (optional)'
+      secret: true
+    s3_endpoint:
+      type: text
+      description: 'Custom S3 endpoint URL (optional)'
+    azure_account_name:
+      type: text
+      description: 'Azure storage account name'
+    azure_account_key:
+      type: text
+      description: 'Azure storage account key'
+      secret: true
+    azure_sas_token:
+      type: text
+      description: 'Azure SAS token'
+      secret: true
+    gcs_access_key_id:
+      type: text
+      description: 'GCS HMAC access key ID'
+    gcs_secret_access_key:
+      type: text
+      description: 'GCS HMAC secret access key'
+      secret: true
+
+bigtable:
+  title: 'Google Cloud Bigtable'
+  kind: database
+  required: ["project", "instance"]
+  url_template: 'bigtable://{project}/{instance}'
+  docs: https://docs.slingdata.io/connections/database-connections/bigtable
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: BT_MAIN'
+      examples: ['BT_MAIN', 'BIGTABLE_PROD', 'GC_BIGTABLE']
+    project:
+      type: text
+      description: 'GCP project ID'
+      examples: ['my-gcp-project', 'analytics-prod', 'bigtable-project']
+    instance:
+      type: text
+      description: 'Bigtable instance name'
+      examples: ['my-instance', 'production-bt', 'analytics-bigtable']
+    keyfile:
+      type: text
+      description: 'Path to Service Account JSON file'
+      examples: ['/path/to/service-account.json', './credentials/bigtable-service.json']
+
+azuredwh:
+  title: 'Azure Synapse Analytics'
+  kind: database
+  required: ["host", "port", "database", "username"]
+  url_template: 'sqlserver://{username}:{password}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/sqlserver
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: SYNAPSE_MAIN'
+      examples: ['SYNAPSE_MAIN', 'AZURE_DWH', 'SYN_ANALYTICS']
+    database:
+      type: text
+      description: 'Database name'
+      examples: ['master', 'datawarehouse', 'analytics']
+    host:
+      type: text
+      description: 'Synapse server hostname'
+      examples: ['mysynapse.sql.azuresynapse.net', 'prod-synapse-sql.azuresynapse.net']
+    username:
+      type: text
+      description: 'Username for authentication'
+      examples: ['sqladmin', 'admin', 'synapse_user']
+    password:
+      type: text
+      description: 'Password for authentication'
+      examples: ['mypassword123']
+      secret: true
+    port:
+      type: integer
+      description: 'Port number'
+      examples: ['1433']
+      default: 1433
+    schema:
+      type: text
+      description: 'Default schema name'
+      examples: ['dbo', 'analytics', 'staging']
+      default: dbo
+
+db2:
+  title: 'IBM DB2'
+  kind: database
+  required: ["host", "port", "database", "username"]
+  url_template: 'db2://{username}:{password}@{host}:{port}/{database}'
+  docs: https://docs.slingdata.io/connections/database-connections/db2
+  properties:
+    name:
+      type: text
+      title: Connection Name
+      description: 'The name of the connection. No spaces are allowed, will be all caps. Example: DB2_MAIN'
+      examples: ['DB2_MAIN', 'DB2_PROD', 'DB2_ANALYTICS']
+    host:
+      type: text
+      description: 'The hostname / IP of the DB2 server'
+      examples: ['localhost', '192.168.1.100', 'db2.example.com']
+    port:
+      type: integer
+      description: 'The port number of the DB2 server'
+      examples: ['50000', '50001']
+      default: 50000
+    database:
+      type: text
+      description: 'The database name'
+      examples: ['SAMPLE', 'TESTDB', 'PRODDB']
+    schema:
+      type: text
+      description: 'The default schema name (optional)'
+      examples: ['DB2INST1', 'MYSCHEMA', 'PUBLIC']
+    username:
+      type: text
+      description: 'The username to access the database'
+      examples: ['db2inst1', 'admin', 'myuser']
+    password:
+      type: text
+      description: 'The password to access the database'
+      examples: ['mypassword123']
+      secret: true
+    sslConnection:
+      type: boolean
+      description: 'Enable SSL connection'
+      examples: [true, false]
+      default: false
+    securityMechanism:
+      type: text
+      description: 'Security mechanism for authentication (optional)'
+      examples: ['', '3', '4', '9']
+    currentSchema:
+      type: text
+      description: 'Set the current schema after connection (optional)'
+      examples: ['DB2INST1', 'MYSCHEMA']

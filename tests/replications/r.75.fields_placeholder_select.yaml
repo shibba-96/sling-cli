@@ -30,7 +30,7 @@ hooks:
     # verify the target table has the correct data
     - type: query
       connection: '{target.name}'
-      query: SELECT id, name FROM public.test_table_fields_output ORDER BY id
+      query: SELECT * FROM public.test_table_fields_output ORDER BY id
       into: result
 
     - type: log
@@ -51,6 +51,57 @@ hooks:
     - type: check
       check: store.result[2].name == "Charlie"
 
+    # verify the placeholder columns (null, 0, true literals)
+    - type: check
+      check: is_null(store.result[0].null_col)
+
+    - type: check
+      check: store.result[0].num_col == 0
+
+    - type: check
+      check: bool_parse(store.result[0].bool_col) == true
+
+    - type: check
+      check: is_null(store.result[2].null_col)
+
+    - type: check
+      check: store.result[2].num_col == 0
+
+    - type: check
+      check: bool_parse(store.result[2].bool_col) == true
+
+    # verify the expression columns (string literal, keyword, CASE, cast, quoted)
+    - type: check
+      check: store.result[0].str_col == "N/A"
+
+    - type: check
+      check: store.result[2].str_col == "N/A"
+
+    # current_date should be populated (non-null)
+    - type: check
+      check: is_null(store.result[0].date_col) == false
+
+    # CASE: id=1 -> "small", id=3 -> "big"
+    - type: check
+      check: store.result[0].case_col == "small"
+
+    - type: check
+      check: store.result[2].case_col == "big"
+
+    # id::text cast -> string value of id
+    - type: check
+      check: store.result[0].cast_col == "1"
+
+    - type: check
+      check: store.result[2].cast_col == "3"
+
+    # "email" quoted identifier -> original email value
+    - type: check
+      check: store.result[0].quoted_email == "alice@example.com"
+
+    - type: check
+      check: store.result[2].quoted_email == "charlie@example.com"
+
     # cleanup
     - type: query
       connection: '{source.name}'
@@ -62,7 +113,17 @@ hooks:
 
 streams:
   test_table_fields:
-    select: [id, name]
+    select:
+      - id
+      - name
+      - null as null_col
+      - 0 as num_col
+      - true as bool_col
+      - "'N/A' as str_col"                                          # string literal
+      - current_date as date_col                                    # bare keyword expression
+      - "case when id > 1 then 'big' else 'small' end as case_col"  # CASE expression
+      - "id::text as cast_col"                                      # cast shorthand
+      - '"email" as quoted_email'                                   # already-quoted identifier
     sql: |
       SELECT {fields}
       FROM public.test_table_fields

@@ -65,6 +65,9 @@ core:
   merge_insert: |
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM {src_table} src
+    WHERE NOT EXISTS (
+      SELECT 1 FROM {tgt_table} tgt WHERE {src_tgt_pk_equal}
+    )
 
   # Athena does not support UPDATE, UPDATE_INSERT, or DELETE_INSERT on standard tables
   # Use Iceberg tables (TypeDbIceberg) for full merge support

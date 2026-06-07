@@ -7,6 +7,7 @@ core:
   create_table: create table {table} ({col_types})
   create_index: create index {index} on {table} ({cols})
   create_unique_index: create unique index {index} on {table} ({cols})
+  create_index_full: create {unique} index {index} on {table} {using} ({cols}) {include} {where}
   insert: insert into {table} ({fields}) values ({values})
   update: update {table} set {set_fields} where {pk_fields_equal}
   delete_where_not_exist: |
@@ -51,6 +52,9 @@ core:
   merge_insert: |
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM {src_table} src
+    WHERE NOT EXISTS (
+      SELECT 1 FROM {tgt_table} tgt WHERE {src_tgt_pk_equal}
+    )
 
   merge_update: |
     UPDATE {tgt_table} tgt

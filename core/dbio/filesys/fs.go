@@ -1395,6 +1395,8 @@ func WriteDataflowReadyViaDuckDB(fs FileSysClient, df *iop.Dataflow, uri string,
 	// merge into single stream to push into duckdb
 	duckSc := duck.DefaultCsvConfig()
 	duckSc.FileMaxRows = sc.FileMaxRows
+	duckSc.TargetType = sc.TargetType
+	duckSc.BinaryAsHex = sc.BinaryAsHex
 
 	switch fs.GetProp("duckdb_copy_method", "copy_method") {
 	case "csv_http":

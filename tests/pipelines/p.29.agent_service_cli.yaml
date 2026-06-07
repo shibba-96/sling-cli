@@ -4,7 +4,7 @@ steps:
   - id: svc_help
     command: sling agent service --help
 
-  - check: 'contains(state.svc_help.output.combined, "manage the sling agent as an OS service")'
+  - check: 'contains(state.svc_help.output.combined, "manage the sling runner as an OS service")'
     failure_message: 'service --help missing description'
 
   - check: 'contains(state.svc_help.output.combined, "install") && contains(state.svc_help.output.combined, "uninstall") && contains(state.svc_help.output.combined, "start") && contains(state.svc_help.output.combined, "stop") && contains(state.svc_help.output.combined, "restart") && contains(state.svc_help.output.combined, "status") && contains(state.svc_help.output.combined, "log")'
@@ -15,7 +15,7 @@ steps:
   - id: svc_install_help
     command: sling agent service install --help
 
-  - check: 'contains(state.svc_install_help.output.combined, "register the agent with the OS service manager")'
+  - check: 'contains(state.svc_install_help.output.combined, "register the runner with the OS service manager")'
     failure_message: 'install --help missing description'
 
   - check: 'contains(state.svc_install_help.output.combined, "--user") && contains(state.svc_install_help.output.combined, "--key") && contains(state.svc_install_help.output.combined, "-k")'
@@ -26,7 +26,7 @@ steps:
   - id: svc_log_help
     command: sling agent service log --help
 
-  - check: 'contains(state.svc_log_help.output.combined, "print the agent service log")'
+  - check: 'contains(state.svc_log_help.output.combined, "print the runner service log")'
     failure_message: 'log --help missing description'
 
   - check: 'contains(state.svc_log_help.output.combined, "--follow") && contains(state.svc_log_help.output.combined, "-f") && contains(state.svc_log_help.output.combined, "--lines") && contains(state.svc_log_help.output.combined, "-l")'

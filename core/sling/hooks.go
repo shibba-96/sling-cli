@@ -17,6 +17,17 @@ const (
 	HookKindStep HookKind = "step"
 )
 
+const (
+	OnFailAbort OnFailType = "abort"
+	OnFailError OnFailType = "error"
+	OnFailWarn  OnFailType = "warn"
+	OnFailSkip  OnFailType = "skip" // skip the stream
+	OnFailQuiet OnFailType = "quiet"
+	OnFailBreak OnFailType = "break" // break the hook
+	OnFailRetry OnFailType = "retry"
+	OnFailDefer OnFailType = "defer" // defer failure (in groups)
+)
+
 var HookRunReplication func(string, *Config, ...string) error
 
 type Hook interface {

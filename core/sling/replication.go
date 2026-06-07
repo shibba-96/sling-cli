@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flarco/g"
@@ -100,6 +101,7 @@ func (rd *ReplicationConfig) initRuntimeState(selectStreams []string) {
 			Execution: ExecutionState{},
 			Source:    ConnState{Name: rd.Source},
 			Target:    ConnState{Name: rd.Target},
+			mu:        &sync.RWMutex{},
 		}
 
 		if env.IsThreadChild {
@@ -430,6 +432,7 @@ func (rd *ReplicationConfig) ProcessWildcards() (err error) {
 
 						setEndpointProps := func(s *ReplicationStreamConfig) {
 							s.dependsOn = endpoint.DependsOn
+							s.queueStreaming = endpoint.ConsumesQueueImmediately()
 
 							if s.PrimaryKeyI == nil {
 								s.PrimaryKeyI = endpoint.Response.Records.PrimaryKey
@@ -478,6 +481,7 @@ func (rd *ReplicationConfig) ProcessWildcards() (err error) {
 							cfg.Description = ""
 							cfg.dependsOn = nil
 							cfg.overrides = nil
+							cfg.queueStreaming = false
 						}
 						setEndpointProps(cfg) // set endpoint props
 						rd.AddStream(endpoint.Name, cfg)
@@ -921,9 +925,10 @@ func (rd *ReplicationConfig) ProcessChunks() (err error) {
 
 func (rd *ReplicationConfig) AddStream(key string, cfg *ReplicationStreamConfig) {
 	newCfg := ReplicationStreamConfig{}
-	g.Unmarshal(g.Marshal(cfg), &newCfg)       // copy config over
-	newCfg.dependsOn = g.PtrVal(cfg).dependsOn // set dependsOn since not marshalled
-	newCfg.overrides = g.PtrVal(cfg).overrides // set overrides since not marshalled
+	g.Unmarshal(g.Marshal(cfg), &newCfg)                 // copy config over
+	newCfg.dependsOn = g.PtrVal(cfg).dependsOn           // set dependsOn since not marshalled
+	newCfg.overrides = g.PtrVal(cfg).overrides           // set overrides since not marshalled
+	newCfg.queueStreaming = g.PtrVal(cfg).queueStreaming // set since not marshalled
 	rd.Streams[key] = &newCfg
 	rd.streamsOrdered = append(rd.streamsOrdered, key)
 
@@ -1350,8 +1355,8 @@ func (rd *ReplicationConfig) buildCDCRunner() {
 		}
 
 		switch {
-		case cfg.SrcConn.Type.IsMySQLLike():
-			return true
+		case cfg.SrcConn.Type.IsMySQLLike(), cfg.SrcConn.Type.IsPostgresLike():
+			return cfg.CDCSlotLevel() == database.CDCSlotLevelShared
 		}
 		return false
 	}
@@ -1362,8 +1367,11 @@ func (rd *ReplicationConfig) buildCDCRunner() {
 		}
 		if groupKey == "" {
 			groupKey = string(cfg.SrcConn.Type) + ":" + cfg.SrcConnMD5()
-			if cfg.SrcConn.Type.IsMySQLLike() {
+			switch {
+			case cfg.SrcConn.Type.IsMySQLLike():
 				groupKey = "mysql:" + cfg.SrcConnMD5()
+			case cfg.SrcConn.Type.IsPostgresLike():
+				groupKey = "postgres:" + cfg.SrcConnMD5()
 			}
 		}
 		groupTasks = append(groupTasks, cfg)
@@ -1401,9 +1409,57 @@ type ReplicationStreamConfig struct {
 	Columns       any            `json:"columns,omitempty" yaml:"columns,omitempty"`
 	Hooks         HookMap        `json:"hooks,omitempty" yaml:"hooks,omitempty"`
 
-	overrides   *ReplicationStreamConfig `json:"-" yaml:"-"`
-	replication *ReplicationConfig       `json:"-" yaml:"-"`
-	dependsOn   []string                 `json:"-" yaml:"-"`
+	overrides      *ReplicationStreamConfig `json:"-" yaml:"-"`
+	replication    *ReplicationConfig       `json:"-" yaml:"-"`
+	dependsOn      []string                 `json:"-" yaml:"-"`
+	queueStreaming bool                     `json:"-" yaml:"-"`
+}
+
+// SelectColumnsToken, placed first in a stream's `select`, pins the column
+// names declared under `columns` (in declared order). e.g. `['@columns', '*']`.
+const SelectColumnsToken = "@columns"
+
+// expandSelectColumns replaces a leading @columns sentinel with the given column
+// names (in declared order), deduping and preserving any tokens that follow.
+// Errors if @columns is not first or `columns` is undefined.
+func expandSelectColumns(selectList, columnNames []string) ([]string, error) {
+	tokenAt := -1
+	for i, f := range selectList {
+		if strings.TrimSpace(f) == SelectColumnsToken {
+			tokenAt = i
+			break
+		}
+	}
+
+	if tokenAt == -1 {
+		return selectList, nil // no sentinel, nothing to do
+	}
+	if tokenAt != 0 {
+		return selectList, g.Error("the '%s' select token must be the first item in `select`", SelectColumnsToken)
+	}
+	if len(columnNames) == 0 {
+		return selectList, g.Error("the '%s' select token requires `columns` to be defined on the stream", SelectColumnsToken)
+	}
+
+	expanded := make([]string, 0, len(selectList)-1+len(columnNames))
+	seen := map[string]bool{}
+	add := func(f string) {
+		key := strings.ToLower(strings.TrimSpace(f))
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		expanded = append(expanded, f)
+	}
+
+	// @columns is first: emit the declared column names, then the remaining tokens
+	for _, name := range columnNames {
+		add(name)
+	}
+	for _, f := range selectList[1:] {
+		add(f)
+	}
+	return expanded, nil
 }
 
 func (s *ReplicationStreamConfig) PrimaryKey() []string {
@@ -1472,12 +1528,19 @@ func (rd *ReplicationConfig) StreamToTaskConfig(stream *ReplicationStreamConfig,
 		stream.Hooks.PostMerge = append(stream.Hooks.PostMerge, overrides.Hooks.PostMerge...)
 	}
 
+	// Expand a leading @columns sentinel here, where both `select` and `columns`
+	// are fully resolved, before the select list reaches any source reader.
+	selectFields, err := expandSelectColumns(stream.Select, columnNamesInOrder(stream.Columns))
+	if err != nil {
+		return cfg, g.Error(err, "could not resolve `select` for stream: %s", name)
+	}
+
 	cfg = Config{
 		Source: Source{
 			Conn:        rd.Source,
 			Stream:      name,
 			Query:       stream.SQL,
-			Select:      stream.Select,
+			Select:      selectFields,
 			Where:       stream.Where,
 			Files:       stream.Files,
 			PrimaryKeyI: stream.PrimaryKey(),
@@ -1493,6 +1556,7 @@ func (rd *ReplicationConfig) StreamToTaskConfig(stream *ReplicationStreamConfig,
 		StreamName:        name,
 		ReplicationStream: stream,
 		DependsOn:         stream.dependsOn,
+		QueueStreaming:    stream.queueStreaming,
 		Env:               env,
 	}
 	// so that the next stream does not retain previous pointer values
@@ -1744,6 +1808,59 @@ func UnmarshalReplication(replicYAML string) (config ReplicationConfig, err erro
 	}
 
 	return
+}
+
+// columnNamesInOrder returns the column names from a stream's resolved `columns`
+// value, preserving declared order. The YAML parser stores it as an ordered
+// []any of {name, type} maps (see makeColumns); map shapes are a non-YAML
+// fallback. Returns nil if there are no columns.
+func columnNamesInOrder(cols any) []string {
+	if cols == nil {
+		return nil
+	}
+
+	extractName := func(item any) string {
+		switch v := item.(type) {
+		case map[string]any:
+			return cast.ToString(v["name"])
+		case map[any]any:
+			return cast.ToString(v["name"])
+		case iop.Column:
+			return v.Name
+		default:
+			return ""
+		}
+	}
+
+	var names []string
+	switch v := cols.(type) {
+	case []any:
+		for _, item := range v {
+			if name := extractName(item); name != "" {
+				names = append(names, name)
+			}
+		}
+	case []map[string]any:
+		for _, item := range v {
+			if name := cast.ToString(item["name"]); name != "" {
+				names = append(names, name)
+			}
+		}
+	case iop.Columns:
+		for _, c := range v {
+			names = append(names, c.Name)
+		}
+	case map[string]any:
+		for name := range v {
+			names = append(names, name)
+		}
+	case map[any]any:
+		for name := range v {
+			names = append(names, cast.ToString(name))
+		}
+	}
+
+	return names
 }
 
 // sets the columns correctly and keep the order

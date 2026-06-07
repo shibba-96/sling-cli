@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flarco/g"
@@ -47,13 +48,23 @@ type DuckDb struct {
 }
 
 type duckDbQuery struct {
-	SQL     string
-	Context *g.Context
-	reader  *io.PipeReader
-	writer  *io.PipeWriter
-	err     error
-	started bool
-	done    bool
+	SQL       string
+	Context   *g.Context
+	reader    *io.PipeReader
+	writer    *io.PipeWriter
+	err       error
+	started   bool
+	done      bool
+	closed    chan struct{} // closed when the query finishes, to stop the watcher
+	closeOnce sync.Once
+}
+
+// finish stops the watcher goroutine started in newQuery. Safe to call multiple times.
+func (dq *duckDbQuery) finish() {
+	if dq == nil || dq.closed == nil {
+		return
+	}
+	dq.closeOnce.Do(func() { close(dq.closed) })
 }
 
 // NewDuckDb creates a new DuckDb instance with the given context and properties
@@ -500,12 +511,20 @@ func (duck *DuckDb) Close() error {
 	case <-timer.C:
 		if duck.Proc.Cmd != nil {
 			g.Debug("killing pid %s", duck.Proc.Cmd.Process.Pid)
-			duck.Proc.Cmd.Process.Kill()
+			duck.kill()
 		}
 	}
 	duck.Proc.Cmd = nil
 
 	return nil
+}
+
+// kill kills the DuckDB process to abort an in-flight query; the next query re-opens a fresh process
+func (duck *DuckDb) kill() {
+	duck.SetProp("connected", "false")
+	if duck.Proc != nil && duck.Proc.Cmd != nil && duck.Proc.Cmd.Process != nil {
+		duck.Proc.Cmd.Process.Kill()
+	}
 }
 
 // Exec executes a SQL query and returns the result
@@ -631,6 +650,7 @@ func (duck *DuckDb) ExecContext(ctx context.Context, sql string, args ...any) (r
 	defer duck.Context.Unlock()
 
 	dq := duck.newQuery(ctx, sql)
+	defer dq.finish()
 
 	result = duckDbResult{}
 
@@ -677,12 +697,49 @@ func (duck *DuckDb) newQuery(ctx context.Context, sql string) (query *duckDbQuer
 		Context: g.NewContext(ctx),
 		reader:  stdOutReader,
 		writer:  stdOutWriter,
+		closed:  make(chan struct{}),
 	}
+
+	// watcher: unblock a stuck reader (and release duck.Context's lock) when the
+	// query context is cancelled, or the process dies / its stdout scanner stops
+	// before the EOF marker arrives. Otherwise ConsumeCsvReader blocks forever.
+	dq := duck.query
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-dq.closed:
+				return
+			case <-dq.Context.Ctx.Done():
+				err := g.Error(dq.Context.Ctx.Err(), "duckdb query context cancelled")
+				dq.err = err
+				dq.writer.CloseWithError(err)
+				dq.reader.CloseWithError(err)
+				duck.kill() // kill the proc so it won't block subsequent queries
+				return
+			case <-ticker.C:
+				if duck.Proc != nil && !dq.done && (duck.Proc.Exited() || duck.Proc.ScanErr != nil) {
+					reason := "duckdb process exited before query completed"
+					if duck.Proc.ScanErr != nil {
+						reason = "duckdb stdout scanner stopped before query completed"
+					}
+					err := g.Error("%s: %s", reason, duck.Proc.CmdErrorText())
+					dq.err = err
+					dq.writer.CloseWithError(err)
+					dq.reader.CloseWithError(err)
+					return
+				}
+			}
+		}
+	}()
+
 	return duck.query
 }
 
 // waitForResult waits for the execution of a SQL query and returns the result
 func (duck *DuckDb) waitForResult(dq *duckDbQuery) (result sql.Result, err error) {
+	defer dq.finish()
 
 	stdOutReaderB := bufio.NewReader(dq.reader)
 
@@ -871,6 +928,7 @@ func (duck *DuckDb) StreamContext(ctx context.Context, sql string, options ...ma
 	// start and submit sql
 	err = duck.SubmitSQL(sql, false)
 	if err != nil {
+		dq.finish()
 		duck.Context.Unlock() // release lock
 		return nil, g.Error(err, "Failed to submit SQL")
 	}
@@ -894,6 +952,7 @@ func (duck *DuckDb) StreamContext(ctx context.Context, sql string, options ...ma
 	ds.SetConfig(map[string]string{"delimiter": ",", "header": "true", "transforms": g.Marshal(transforms), "null_if": `\N\`})
 
 	ds.Defer(func() {
+		dq.finish()
 		duck.Context.Mux.TryLock()
 		duck.Context.Unlock() // release lock
 	})
@@ -1562,13 +1621,12 @@ func (duck *DuckDb) DataflowToHttpStream(df *Dataflow, sc StreamConfig) (streamP
 	df.SetBatchLimit(sc.BatchLimit)
 	ds := MergeDataflow(df)
 
-	// Propagate TargetType from the source dataflow so CastToStringCSV knows
-	// to hex-encode binary columns destined for Snowflake / BigQuery. The
-	// caller (e.g. WriteDataflowReadyViaDuckDB) passes a default CSV config
-	// that does not preserve this — without this copy, binary BLOBs would
-	// stream as raw bytes and break DuckDB's CSV parser.
+	// Propagate hex-encoding intent from the source dataflow so CastToStringCSV
 	if sc.TargetType == "" && ds.Sp != nil && ds.Sp.Config.TargetType != "" {
 		sc.TargetType = ds.Sp.Config.TargetType
+	}
+	if ds.Sp != nil && ds.Sp.Config.BinaryAsHex {
+		sc.BinaryAsHex = true
 	}
 
 	go func() {

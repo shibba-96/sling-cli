@@ -3,6 +3,7 @@ package sling
 import (
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/flarco/g"
@@ -35,13 +36,35 @@ type ReplicationState struct {
 	Object    *ObjectState              `json:"object,omitempty"`
 	Runs      map[string]*RunState      `json:"runs,omitempty"`
 	Run       *RunState                 `json:"run,omitempty"`
+
+	mu *sync.RWMutex `json:"-" yaml:"-"`
 }
+
+func (rs *ReplicationState) lock() {
+	if rs.mu == nil {
+		rs.mu = &sync.RWMutex{}
+	}
+	rs.mu.Lock()
+}
+
+func (rs *ReplicationState) unlock() { rs.mu.Unlock() }
+
+func (rs *ReplicationState) rlock() {
+	if rs.mu == nil {
+		rs.mu = &sync.RWMutex{}
+	}
+	rs.mu.RLock()
+}
+
+func (rs *ReplicationState) runlock() { rs.mu.RUnlock() }
 
 func (rs *ReplicationState) GetStore() map[string]any {
 	return rs.Store
 }
 
 func (rs *ReplicationState) SetStoreData(key string, value any, del bool) {
+	rs.lock()
+	defer rs.unlock()
 	if del {
 		delete(rs.Store, key)
 	} else {
@@ -50,14 +73,23 @@ func (rs *ReplicationState) SetStoreData(key string, value any, del bool) {
 }
 
 func (rs *ReplicationState) SetStateData(id string, data map[string]any) {
+	rs.lock()
+	defer rs.unlock()
 	rs.State[id] = data
 }
 
 func (rs *ReplicationState) SetStateKeyValue(id, key string, value any) {
+	rs.lock()
+	defer rs.unlock()
+	if rs.State[id] == nil {
+		rs.State[id] = map[string]any{}
+	}
 	rs.State[id][key] = value
 }
 
 func (rs *ReplicationState) Marshall() string {
+	rs.rlock()
+	defer rs.runlock()
 	return g.Marshal(rs)
 }
 
@@ -322,7 +354,7 @@ func (t *TaskExecution) StateSet() {
 		// write runtime state file if finished
 		if env.IsThreadChild && t.Status.IsFinished() {
 			stateFile := env.RuntimeFilePath(t.Config.StreamName)
-			if err := os.WriteFile(stateFile, []byte(g.Marshal(state)), 0755); err != nil {
+			if err := os.WriteFile(stateFile, []byte(state.Marshall()), 0755); err != nil {
 				g.Warn("could not write runtime state file (%s): %s", stateFile, err.Error())
 			}
 		}

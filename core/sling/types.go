@@ -98,6 +98,8 @@ var AllExecStatus = []struct {
 	{ExecStatusError, "ExecStatusError"},
 	{ExecStatusSkipped, "ExecStatusSkipped"},
 	{ExecStatusStalled, "ExecStatusStalled"},
+	{ExecStatusCancelled, "ExecStatusCancelled"},
+	{ExecStatusWarning, "ExecStatusWarning"},
 }
 
 // IsRunning returns true if an execution is running
@@ -114,7 +116,8 @@ func (s ExecStatus) IsFinished() bool {
 	switch s {
 	case ExecStatusSuccess, ExecStatusError,
 		ExecStatusTerminated, ExecStatusStalled,
-		ExecStatusInterrupted, ExecStatusTimedOut:
+		ExecStatusInterrupted, ExecStatusTimedOut,
+		ExecStatusWarning:
 		return true
 	}
 	return false

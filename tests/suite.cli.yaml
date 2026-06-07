@@ -1250,7 +1250,7 @@
   name: 'Test {fields} placeholder with select parameter (issue #669)'
   run: 'sling run -d -r tests/replications/r.75.fields_placeholder_select.yaml'
   output_contains:
-    - SELECT "id", "name"
+    - SELECT "id", "name", null as null_col, 0 as num_col, true as bool_col
 
 - id: 142
   name: 'Test columns casting to string for DDL (issue #651)'
@@ -1580,13 +1580,14 @@
 - id: 171
   name: 'Test merge_strategy target option'
   run: 'sling run -d -r tests/replications/r.100.merge_strategy.yaml'
-  streams: 4
+  streams: 5
   output_contains:
     - 'execution succeeded'
     - 'update_insert count'
     - 'delete_insert count'
     - 'update count'
     - 'insert count'
+    - 'SUCCESS: merge_strategy insert skips existing rows (issue #755)'
 
 # Test constraint validation with value IN expressions
 # Bug: Constraints fail to abort replication when invalid data is present
@@ -2300,3 +2301,117 @@
   run: 'sling run -d -p tests/pipelines/p.33.select_json_file_source.yaml'
   output_contains:
     - 'select on JSON file source: SUCCESS'
+
+- id: 241
+  name: 'API streaming queue: broadcast count match, group-scoped fail-fast'
+  group: api
+  run: |
+    cd tests/specs/queue_streaming_failfast
+    bash run_test.sh
+  output_contains:
+    - 'SUCCESS PATH OK: all 5 children produced 30 records each'
+    - 'FAIL-FAST PATH OK: group 1 failed/terminated, independent group 2 succeeded'
+    - 'QUEUE STREAMING TEST PASSED'
+
+# Test MySQL binary/blob fidelity (mediumblob -> mediumblob)
+# Issue: blob types mapped to generic `text`, storing binary as mediumtext and
+# corrupting invalid UTF-8 bytes with the U+FFFD replacement char.
+# Fix: map blob types to `binary`, hex-encode binary in CSV, decode via UNHEX.
+- id: 242
+  name: 'Test MySQL binary blob fidelity'
+  run: 'sling run -d -r tests/replications/r.111.mysql_binary_blob_fidelity.yaml'
+  streams: 1
+  rows: 4
+  output_contains:
+    - 'execution succeeded'
+    - 'SUCCESS: MySQL binary blob fidelity test passed'
+
+# Test SQL Server binary fidelity (varbinary(max) round-trip)
+# Issue: binary serialized as text (BCP CSV / nvarchar bind) corrupted/truncated data.
+- id: 243
+  name: 'Test SQL Server binary fidelity'
+  run: 'sling run -d -r tests/replications/r.112.sqlserver_binary_fidelity.yaml'
+  streams: 2
+  rows: 6
+  output_contains:
+    - 'execution succeeded'
+    - 'SUCCESS: SQL Server binary fidelity test passed (bcp + cursor)'
+
+# Test Postgres binary fidelity (bytea round-trip)
+- id: 244
+  name: 'Test Postgres binary fidelity'
+  run: 'sling run -d -r tests/replications/r.113.postgres_binary_fidelity.yaml'
+  streams: 1
+  rows: 4
+  output_contains:
+    - 'execution succeeded'
+    - 'SUCCESS: Postgres binary fidelity test passed'
+
+# Column DDL constraints & index improvements — single self-contained pipeline
+# covering the columns: modifier DSL (not_null / primary_key / unique /
+# description / inline index), the ClickHouse not_null fix, the
+# table_keys.index list form, and the reserved-but-unsupported error path.
+- id: 245
+  name: 'Test column DDL constraints & indexes (pipeline)'
+  run: 'sling run -d -p tests/pipelines/p.34.column_ddl_constraints_and_indexes.yaml'
+  output_contains:
+    - 'is not yet supported'
+    - 'SUCCESS: column DDL constraints & indexes pipeline passed'
+
+# Column DDL per-engine validation — master pipeline builds a Postgres source
+# table then drives one child pipeline per emission-capable engine. Each child
+# applies the columns: modifier DSL and inspects the target catalog /
+# information_schema to confirm not_null / primary_key / unique / index /
+# description landed correctly (each engine asserts only what it natively emits).
+- id: 246
+  name: 'Test column DDL per-engine (master pipeline)'
+  run: 'sling run -p tests/pipelines/column_ddl/p.columns_ddl.00.master.yaml'
+  output_contains:
+    - 'SUCCESS: postgres column DDL verified'
+    - 'SUCCESS: mysql column DDL verified'
+    - 'SUCCESS: mariadb column DDL verified'
+    - 'SUCCESS: sqlserver column DDL verified'
+    - 'SUCCESS: sqlite column DDL verified'
+    - 'SUCCESS: oracle column DDL verified'
+    - 'SUCCESS: clickhouse column DDL verified'
+    - 'SUCCESS: snowflake column DDL verified'
+    - 'SUCCESS: duckdb column DDL verified'
+    - 'SUCCESS: motherduck column DDL verified'
+    - 'SUCCESS: bigquery column DDL verified'
+    - 'SUCCESS: starrocks column DDL verified'
+    - 'SUCCESS: all column DDL engine pipelines passed'
+
+- id: 247
+  name: 'Test group concurrency runs loop iterations in parallel'
+  run: 'sling run -p tests/pipelines/p.36.group_concurrency.yaml'
+  output_contains:
+    - 'group concurrency checks passed'
+
+- id: 248
+  name: 'Test on_failure:warn sets warning status & propagates through groups'
+  run: 'sling run -p tests/pipelines/p.35.on_failure_warn_status.yaml'
+  output_contains:
+    - 'step (direct_warn) failed'
+    - 'step (group_inner_warn) failed'
+    - 'group substep 3 still ran'
+    - 'step (deep_warn) failed'
+    - 'all on_failure:warn status checks passed'
+
+- id: 249
+  name: Oracle bare table name injects schema for column lookup (https://github.com/slingdata-io/sling-cli/issues/749)
+  run: sling run -r tests/replications/r.114.oracle_no_schema_columns.yaml
+  env:
+    SCHEMA: ORACLE
+    SOURCE: ORACLE
+    TARGET: POSTGRES
+  output_contains:
+    - 'execution succeeded'
+
+- id: 250
+  name: Run sling iceberg time/uuid write (issue #751)
+  run: |
+    sling run -d -r tests/replications/r.115.iceberg_time_uuid.yaml
+  output_contains:
+    - committed iceberg snapshot
+    - inserted 1 rows
+    - 'result => {"t":"08:30:00"}'

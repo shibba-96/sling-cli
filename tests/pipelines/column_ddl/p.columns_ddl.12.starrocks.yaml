@@ -1,0 +1,56 @@
+# Column DDL constraints test: StarRocks target
+# StarRocks emits not_null and inline column comments (description). Its
+# PRIMARY KEY / UNIQUE / index concepts are tied to the table distribution model
+# (primary/duplicate/hash keys, bitmap/bloomfilter indexes) and do not map to the
+# generic column DSL, so only not_null + description are exercised here.
+# Comments are emitted INLINE in the column definition (post-CREATE
+# ALTER ... MODIFY COLUMN COMMENT is an async schema-change on StarRocks).
+env:
+  SOURCE: postgres
+  TARGET: starrocks
+  SCHEMA: sling_test
+
+steps:
+  - connection: '{env.TARGET}'
+    query: drop table if exists {env.SCHEMA}.cddl_dst
+
+  - type: replication
+    id: repl
+    replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+      streams:
+        public.cddl_src:
+          object: '{env.SCHEMA}.cddl_dst'
+          columns:
+            id: bigint not_null
+            email: string(255) not_null
+            org_id: string(255) not_null
+            region: string(255)
+            notes: string(255) description('user notes')
+
+  # nullability: id/email/org_id NOT NULL, region/notes nullable
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from information_schema.columns
+      where table_schema = '{env.SCHEMA}' and table_name = 'cddl_dst'
+        and is_nullable = 'NO' and column_name in ('id','email','org_id')
+    into: notnull_cnt
+  - type: check
+    check: int_parse(store.notnull_cnt[0].cnt) == 3
+    message: 'expected 3 NOT NULL columns, got {store.notnull_cnt[0].cnt}'
+
+  # description / inline column comment on notes
+  - connection: '{env.TARGET}'
+    query: |
+      select column_comment from information_schema.columns
+      where table_schema = '{env.SCHEMA}' and table_name = 'cddl_dst' and column_name = 'notes'
+    into: notes_comment
+  - type: check
+    check: store.notes_comment[0].column_comment == "user notes"
+    message: 'expected comment "user notes" on notes, got {store.notes_comment[0].column_comment}'
+
+  - type: log
+    message: 'SUCCESS: starrocks column DDL verified'

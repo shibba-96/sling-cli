@@ -76,6 +76,7 @@ type StreamConfig struct {
 	DeleteFile      bool           `json:"delete"` // whether to delete before writing
 	BoolAsInt       bool           `json:"-"`
 	EscapeBackslash bool           `json:"-"`       // escape backslashes for MySQL LOAD DATA
+	BinaryAsHex     bool           `json:"-"`       // hex-encode binary in CSV
 	Columns         Columns        `json:"columns"` // list of column types. Can be partial list! likely is!
 	Transforms      Transform
 
@@ -1189,7 +1190,7 @@ func (sp *StreamProcessor) CastToStringCSV(i int, val any, valType ...ColumnType
 			return tVal.Format("2006-01-02 15:04:05.999999999") + " +00"
 		}
 		return tVal.Format("2006-01-02 15:04:05.999999999 -07")
-	case typ.IsBinary() && g.In(sp.Config.TargetType, dbio.TypeDbSnowflake, dbio.TypeDbBigQuery):
+	case typ.IsBinary() && sp.Config.BinaryAsHex:
 		return Transforms.BinaryToHex(cast.ToString(val))
 	default:
 		strVal := cast.ToString(val)

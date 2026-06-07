@@ -39,8 +39,8 @@ var (
 	Executable     = ""
 	IsThreadChild  = cast.ToBool(os.Getenv("SLING_THREAD_CHILD"))
 	ExecID         = g.Getenv("SLING_EXEC_ID", NewExecID())
-	AgentID        = os.Getenv("SLING_AGENT_ID")
-	IsAgentMode    = AgentID != ""
+	RunnerID       = g.Getenv("SLING_RUNNER_ID", os.Getenv("SLING_AGENT_ID"))
+	IsRunnerMode   = RunnerID != ""
 
 	// File logging
 	debugLogFile *os.File

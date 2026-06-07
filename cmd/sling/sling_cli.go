@@ -579,9 +579,16 @@ func cliInit(done chan struct{}) int {
 		flaggy.AttachSubcommand(cli.Sc, 1)
 	}
 
-	// patch 'sling mcp' into 'sling serve mcp' for backwards compatibility
-	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
+	// patch subcommands for backwards compatibility
+	switch {
+	// 'sling mcp' into 'sling serve mcp'
+	case len(os.Args) >= 2 && os.Args[1] == "mcp":
 		os.Args = append([]string{os.Args[0], "serve"}, os.Args[1:]...)
+	// 'sling agent' into 'sling runner'
+	case len(os.Args) == 2 && os.Args[1] == "agent":
+		os.Args = []string{os.Args[0], "runner"}
+	case len(os.Args) > 2 && os.Args[1] == "agent":
+		os.Args = append([]string{os.Args[0], "runner"}, os.Args[2:]...)
 	}
 
 	flaggy.ShowHelpOnUnexpectedDisable()

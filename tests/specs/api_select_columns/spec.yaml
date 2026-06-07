@@ -37,3 +37,49 @@ endpoints:
         - id
         - name
         - full_name
+  search:
+    request:
+      url: "{state.base_url}/search/repositories"
+      method: GET
+      parameters:
+        q: "sling language:go"
+        per_page: 5
+    response:
+      records:
+        jmespath: "items"
+        primary_key: ["id"]
+
+  # PROBE A: a processor that renames a key AFTER select/order runs.
+  # `full_name` is renamed to `slug` by an object_rename processor. The
+  # `select` lists [id, slug, name, stargazers_count]. If ordering is
+  # computed before processors, `slug` won't exist yet at order time.
+  search_proc_rename:
+    request:
+      url: "{state.base_url}/search/repositories"
+      method: GET
+      parameters:
+        q: "sling language:go"
+        per_page: 5
+    response:
+      records:
+        jmespath: "items"
+        primary_key: ["id"]
+      processors:
+        - expression: 'object_rename(record, "full_name", "slug")'
+          output: record
+
+  # PROBE B: a jq records expression that RESHAPES each record into a new
+  # object with reordered/renamed keys. The select lists the post-jq names.
+  # The raw response bytes no longer match these keys, so order recovery
+  # from respBytes cannot find them.
+  search_jq_reshape:
+    request:
+      url: "{state.base_url}/search/repositories"
+      method: GET
+      parameters:
+        q: "sling language:go"
+        per_page: 5
+    response:
+      records:
+        jq: '.items[] | {id: .id, label: .full_name, title: .name, stars: .stargazers_count}'
+        primary_key: ["id"]

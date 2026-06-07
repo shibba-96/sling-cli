@@ -101,7 +101,9 @@ steps:
     failure_message: "exclude-only `select` produced too few columns"
 
   # Case 4: reordering via `select` — `[front, "*", back]` places pins
-  # at the ends and lets `*` fill the middle in source order.
+  # at the ends; the `*` remainder fills the middle ALPHABETICALLY (the API's
+  # original field order is NOT preserved — pins go where listed, everything
+  # else is alphabetized).
   - replication:
       source: API_SELECT_TEST
       target: local
@@ -141,6 +143,304 @@ steps:
   - type: check
     check: 'length(keys(json_parse(store.reorder_body)[0])) >= 80'
     failure_message: "reorder: expected ~85 columns; got {length(keys(json_parse(store.reorder_body)[0]))}"
+
+  # The `*` remainder is ALPHABETICAL. The column right after the `id` pin must
+  # be `allow_forking` — the alphabetically-first non-pinned GitHub repo field.
+  # (Under the old source-order behavior this slot held `node_id`/`owner`/etc.)
+  - type: check
+    check: 'regex_match(store.reorder_body, "^\\[\\{\"full_name\":[^,]*,\"id\":[^,]*,\"allow_forking\":")'
+    failure_message: "reorder: `*` remainder not alphabetical — expected `allow_forking` first in the middle"
+
+  # Spot-check alphabetical ordering deeper in the middle: `archive_url` must
+  # precede `archived`, which must precede `assignees_url`.
+  - type: check
+    check: 'regex_match(store.reorder_body, "\"archive_url\":[^,]*,\"archived\":[^,]*,\"assignees_url\":")'
+    failure_message: "reorder: `*` remainder not alphabetical (archive_url < archived < assignees_url)"
+
+  - replication:
+      source: API_SELECT_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}_nested.json"
+      streams:
+        search:
+          select:
+            - id
+            - name
+            - full_name
+            - description
+            - language
+            - stargazers_count
+
+  - type: read
+    from: local/{env.OUT_DIR}/search_nested.json
+    into: nested_body
+
+  - type: log
+    message: "nested-envelope output columns: {keys(json_parse(store.nested_body)[0])}"
+
+  # Multiple records came through (envelope was unwrapped, not treated as 1 row).
+  - type: check
+    check: 'length(json_parse(store.nested_body)) > 1'
+    failure_message: "nested-envelope: expected multiple records from `items`, got {length(json_parse(store.nested_body))}"
+
+  # Exactly the 6 selected columns reach the target — no leakage, no drops.
+  - type: check
+    check: 'length(keys(json_parse(store.nested_body)[0])) == 6'
+    failure_message: "nested-envelope: expected exactly 6 selected columns, got {length(keys(json_parse(store.nested_body)[0]))}"
+
+  - type: check
+    check: '!contains(keys(json_parse(store.nested_body)[0]), "owner") && !contains(keys(json_parse(store.nested_body)[0]), "html_url")'
+    failure_message: "nested-envelope: non-selected column leaked into the target"
+
+  # Column ORDER matches the `select` list exactly. Validated against raw
+  # bytes (json_parse → Go map loses order). The keys must appear in the
+  # order: id, name, full_name, description, language, stargazers_count.
+  - type: check
+    check: 'regex_match(store.nested_body, "^\\[\\{\"id\":[^}]*,\"name\":[^}]*,\"full_name\":[^}]*,\"description\":[^}]*,\"language\":[^}]*,\"stargazers_count\":")'
+    failure_message: "nested-envelope: `select` column order not preserved (expected id, name, full_name, description, language, stargazers_count)"
+
+  # Case 6: select a FLATTENED nested field (`owner__login`) alongside
+  # top-level fields, with a deeper flatten level. Regression for the bug
+  # where the record filter ran on raw top-level keys before flattening, so
+  # `owner` was stripped and `owner__login` could never be produced — the
+  # nested field silently vanished from the output.
+  - replication:
+      source: API_SELECT_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}_flatsel.json"
+        source_options:
+          flatten: 2
+      streams:
+        search:
+          select:
+            - id
+            - owner__login
+            - name
+
+  - type: read
+    from: local/{env.OUT_DIR}/search_flatsel.json
+    into: flatsel_body
+
+  - type: log
+    message: "flattened-select output columns: {keys(json_parse(store.flatsel_body)[0])}"
+
+  # The flattened nested field actually made it through.
+  - type: check
+    check: 'contains(keys(json_parse(store.flatsel_body)[0]), "owner__login")'
+    failure_message: "flattened-select: nested field `owner__login` was dropped"
+
+  # Exactly the 3 selected columns — no leakage, no extra owner__* fields.
+  - type: check
+    check: 'length(keys(json_parse(store.flatsel_body)[0])) == 3'
+    failure_message: "flattened-select: expected exactly 3 columns, got {length(keys(json_parse(store.flatsel_body)[0]))}"
+
+  # No leakage: neither the un-flattened `owner` object nor sibling
+  # `owner__*` fields should appear. Checked against raw bytes since
+  # `contains` on a key list does substring matching (owner__login would
+  # false-match a bare "owner" probe).
+  - type: check
+    check: '!regex_match(store.flatsel_body, "\"owner\":") && !regex_match(store.flatsel_body, "\"owner__id\":")'
+    failure_message: "flattened-select: unselected nested fields leaked into the target"
+
+  # Order matches the select list: id, owner__login, name (raw-bytes check).
+  - type: check
+    check: 'regex_match(store.flatsel_body, "^\\[\\{\"id\":[^}]*,\"owner__login\":[^}]*,\"name\":")'
+    failure_message: "flattened-select: column order not preserved (expected id, owner__login, name)"
+
+  # Case 7: `select` referencing a key PRODUCED BY A PROCESSOR. The
+  # `search_proc_rename` endpoint renames `full_name` -> `slug` via an
+  # object_rename processor that runs AFTER the records are fetched. The
+  # stream selects [id, slug, name, stargazers_count]. Regression for the
+  # bug where select/order ran BEFORE processors: at order time `slug`
+  # didn't exist yet (only `full_name` did) and `full_name` was dropped by
+  # the select, so the processor had nothing to rename and `slug` vanished.
+  # Now select/order run after processors and see the final `slug` key.
+  - replication:
+      source: API_SELECT_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}_procsel.json"
+      streams:
+        search_proc_rename:
+          select:
+            - id
+            - slug
+            - name
+            - stargazers_count
+
+  - type: read
+    from: local/{env.OUT_DIR}/search_proc_rename_procsel.json
+    into: procsel_body
+
+  - type: log
+    message: "processor-rename select output columns: {keys(json_parse(store.procsel_body)[0])}"
+
+  - type: check
+    check: 'length(json_parse(store.procsel_body)) > 1'
+    failure_message: "processor-rename: expected multiple records, got {length(json_parse(store.procsel_body))}"
+
+  # The processor-produced key `slug` survived select (it wasn't dropped
+  # before the rename had a chance to run).
+  - type: check
+    check: 'contains(keys(json_parse(store.procsel_body)[0]), "slug")'
+    failure_message: "processor-rename: `slug` (produced by object_rename) was dropped by select"
+
+  - type: check
+    check: 'length(keys(json_parse(store.procsel_body)[0])) == 4'
+    failure_message: "processor-rename: expected exactly 4 selected columns, got {length(keys(json_parse(store.procsel_body)[0]))}"
+
+  # Neither the pre-rename `full_name` nor unselected fields leak.
+  - type: check
+    check: '!regex_match(store.procsel_body, "\"full_name\":") && !regex_match(store.procsel_body, "\"owner\":")'
+    failure_message: "processor-rename: unselected/pre-rename column leaked into the target"
+
+  # Order matches the select list: id, slug, name, stargazers_count.
+  - type: check
+    check: 'regex_match(store.procsel_body, "^\\[\\{\"id\":[^}]*,\"slug\":[^}]*,\"name\":[^}]*,\"stargazers_count\":")'
+    failure_message: "processor-rename: column order not preserved (expected id, slug, name, stargazers_count)"
+
+  # Case 8: `select` referencing keys produced by a jq RESHAPE of the
+  # records. The `search_jq_reshape` endpoint rebuilds each record as
+  # {id, label, title, stars} via a jq records expression. The stream
+  # selects [id, label, title, stars] — none of which appear in the raw
+  # response bytes (the source keys are full_name/name/stargazers_count).
+  # Regression for the bug where column order was recovered from raw bytes
+  # before reshaping, so reshaped keys ordered alphabetically (stars before
+  # title) instead of by select-list order. Now order is computed on the
+  # final reshaped records.
+  - replication:
+      source: API_SELECT_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}_jqsel.json"
+      streams:
+        search_jq_reshape:
+          select:
+            - id
+            - label
+            - title
+            - stars
+
+  - type: read
+    from: local/{env.OUT_DIR}/search_jq_reshape_jqsel.json
+    into: jqsel_body
+
+  - type: log
+    message: "jq-reshape select output columns: {keys(json_parse(store.jqsel_body)[0])}"
+
+  - type: check
+    check: 'length(json_parse(store.jqsel_body)) > 1'
+    failure_message: "jq-reshape: expected multiple records, got {length(json_parse(store.jqsel_body))}"
+
+  - type: check
+    check: 'length(keys(json_parse(store.jqsel_body)[0])) == 4'
+    failure_message: "jq-reshape: expected exactly 4 selected columns, got {length(keys(json_parse(store.jqsel_body)[0]))}"
+
+  # Order matches the select list exactly: id, label, title, stars. The
+  # critical assertion — `title` must precede `stars` (select order), not
+  # `stars` before `title` (alphabetical, the pre-fix behavior).
+  - type: check
+    check: 'regex_match(store.jqsel_body, "^\\[\\{\"id\":[^}]*,\"label\":[^}]*,\"title\":[^}]*,\"stars\":")'
+    failure_message: "jq-reshape: column order not preserved (expected id, label, title, stars)"
+
+  # Case 9: the `@columns` sentinel as the sole `select` item
+  # (`select: ['@columns']`). It expands to the column names listed under
+  # `columns`, IN DECLARED ORDER, and narrows the output to exactly those
+  # columns. The `columns` order here is deliberately NON-alphabetical
+  # (full_name, id, html_url, stargazers_count) so the test proves the order
+  # comes from `columns`, not from alphabetizing (alphabetical would be
+  # full_name, html_url, id, stargazers_count).
+  - replication:
+      source: API_SELECT_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}_atcols.json"
+      streams:
+        repo:
+          columns:
+            full_name: string
+            id: integer
+            html_url: string
+            stargazers_count: integer
+          select:
+            - "@columns"
+
+  - type: read
+    from: local/{env.OUT_DIR}/repo_atcols.json
+    into: atcols_body
+
+  - type: log
+    message: "@columns scalar output columns: {keys(json_parse(store.atcols_body)[0])}"
+
+  # Exactly the 4 columns from `columns` — no more, no less.
+  - type: check
+    check: 'length(keys(json_parse(store.atcols_body)[0])) == 4'
+    failure_message: "@columns scalar: expected exactly 4 columns from `columns`, got {length(keys(json_parse(store.atcols_body)[0]))}"
+
+  - type: check
+    check: '!contains(keys(json_parse(store.atcols_body)[0]), "owner") && !regex_match(store.atcols_body, "\"node_id\":")'
+    failure_message: "@columns scalar: a column not in `columns` leaked into the target"
+
+  # Order is the `columns` DECLARATION order (raw-bytes check; json_parse loses
+  # order). Must be full_name, id, html_url, stargazers_count — not alphabetical.
+  - type: check
+    check: 'regex_match(store.atcols_body, "^\\[\\{\"full_name\":[^}]*,\"id\":[^}]*,\"html_url\":[^}]*,\"stargazers_count\":")'
+    failure_message: "@columns scalar: order is not the `columns` declaration order (expected full_name, id, html_url, stargazers_count)"
+
+  # Case 10: the `@columns` sentinel MIXED with `*` (`select: ['@columns', '*']`).
+  # The `columns` names pin first in declared order; the `*` remainder then fills
+  # the rest ALPHABETICALLY, with no duplication of the already-pinned columns.
+  - replication:
+      source: API_SELECT_TEST
+      target: local
+      defaults:
+        mode: full-refresh
+        object: "file://{env.OUT_DIR}/{stream_name}_atcolsmix.json"
+      streams:
+        repo:
+          columns:
+            full_name: string
+            id: integer
+            html_url: string
+          select:
+            - "@columns"
+            - "*"
+
+  - type: read
+    from: local/{env.OUT_DIR}/repo_atcolsmix.json
+    into: atcolsmix_body
+
+  - type: log
+    message: "@columns + * output columns: {keys(json_parse(store.atcolsmix_body)[0])}"
+
+  # The `*` remainder brings the full record through (~85 fields), not just the 3 pins.
+  - type: check
+    check: 'length(keys(json_parse(store.atcolsmix_body)[0])) >= 80'
+    failure_message: "@columns + *: expected the full record (~85 cols); got {length(keys(json_parse(store.atcolsmix_body)[0]))}"
+
+  # The 3 `columns` pins lead, in declared order: full_name, id, html_url.
+  - type: check
+    check: 'regex_match(store.atcolsmix_body, "^\\[\\{\"full_name\":[^}]*,\"id\":[^}]*,\"html_url\":")'
+    failure_message: "@columns + *: pins not first in `columns` order (expected full_name, id, html_url)"
+
+  # The column right after the pins is `allow_forking` — the alphabetically-first
+  # non-pinned GitHub repo field — confirming the `*` remainder is alphabetical.
+  - type: check
+    check: 'regex_match(store.atcolsmix_body, "^\\[\\{\"full_name\":[^,]*,\"id\":[^,]*,\"html_url\":[^,]*,\"allow_forking\":")'
+    failure_message: "@columns + *: remainder not alphabetical — expected `allow_forking` right after the pins"
+
+  # No duplication: a pinned column (id) must appear exactly once even though it
+  # is also part of the `*` set.
+  - type: check
+    check: 'length(json_parse(store.atcolsmix_body)[0]) == length(keys(json_parse(store.atcolsmix_body)[0]))'
+    failure_message: "@columns + *: a pinned column was duplicated in the `*` remainder"
 
   - type: log
     message: "=== API select-columns pipeline passed ==="
