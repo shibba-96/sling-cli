@@ -580,7 +580,7 @@ func (t *TaskExecution) runApiToDb() (err error) {
 					syncState[syncKey] = value
 				}
 			} else {
-				if len(srcConn.State.Store) == 0 && !t.hasRange() {
+				if syncKey != "" && len(srcConn.State.Store) == 0 && !t.hasRange() {
 					// warn if no store/range is provided
 					g.Warn("Please use the SLING_STATE environment variable for incremental mode with APIs")
 				}
