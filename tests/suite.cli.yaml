@@ -2415,3 +2415,15 @@
     - committed iceberg snapshot
     - inserted 1 rows
     - 'result => {"t":"08:30:00"}'
+
+- id: 251
+  name: 'Stream sql body: execution.start_time, store.* and state.* render'
+  run: 'sling run -r tests/replications/r.116.stream_sql_runtime_vars.yaml'
+  streams: 2
+  output_contains:
+    - '"exec_rendered":"true"'
+    - '"exec_shared":"true"'
+    - '"store_rendered":"true"'
+    - '"store_nested_rendered":"true"'
+    - '"state_rendered":"true"'
+    - 'execution succeeded'

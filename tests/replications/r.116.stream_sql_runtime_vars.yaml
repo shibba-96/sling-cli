@@ -1,0 +1,91 @@
+# Verifies runtime variables available inside a stream `sql` body:
+#   - {execution.start_time} : replication start time, shared across all streams
+#   - {store.<key>}          : values set by start hooks (type: store / into:)
+#   - {state.<id>.<key>}     : start hook step metadata
+# Wired in core/sling/config.go (GetFormatMap + NewEvaluator namespaces).
+# store/state are filled by start hooks, so the stream sql is re-rendered after
+# start hooks run via cfg.RenderStreamSQL (cmd/sling/sling_run.go).
+#
+# Assertions are SQL-side (booleans) since expr {...} tokens render in hooks too.
+source: postgres
+target: postgres
+
+defaults:
+  mode: full-refresh
+
+hooks:
+  start:
+    - type: store
+      key: cutoff
+      value: "2020-01-15 00:00:00"
+    - type: query
+      id: q_max
+      connection: postgres
+      query: select 42 as max_id
+      into: q_max_result
+
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    - type: query
+      connection: postgres
+      query: |
+        with a as (select exec_start_time, store_cutoff, store_result, state_status from public.stream_sql_exec_a),
+             b as (select exec_start_time from public.stream_sql_exec_b)
+        select
+          (a.exec_start_time ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T') as exec_rendered,
+          (a.exec_start_time = b.exec_start_time)              as exec_shared,
+          (a.store_cutoff = '2020-01-15 00:00:00')             as store_rendered,
+          (a.store_result = '42')                             as store_nested_rendered,
+          (a.state_status = 'success')                        as state_rendered
+        from a cross join b
+      into: result
+
+    - type: log
+      message: 'checks => { store.result[0] }'
+
+    - type: check
+      check: store.result[0].exec_rendered == "true"
+      failure_message: 'expected {execution.start_time} to render in stream sql'
+
+    - type: check
+      check: store.result[0].exec_shared == "true"
+      failure_message: 'expected {execution.start_time} to be identical across streams'
+
+    - type: check
+      check: store.result[0].store_rendered == "true"
+      failure_message: 'expected {store.cutoff} to render in stream sql'
+
+    - type: check
+      check: store.result[0].store_nested_rendered == "true"
+      failure_message: 'expected {store.q_max_result[0].max_id} to render in stream sql'
+
+    - type: check
+      check: store.result[0].state_rendered == "true"
+      failure_message: 'expected {state.q_max.status} to render in stream sql'
+
+    - type: query
+      connection: postgres
+      query: |
+        drop table if exists public.stream_sql_exec_a;
+        drop table if exists public.stream_sql_exec_b;
+
+streams:
+  stream_sql_exec_a:
+    sql: |
+      select
+        'a'::text                               as stream,
+        '{execution.start_time}'::text          as exec_start_time,
+        '{store.cutoff}'::text                  as store_cutoff,
+        '{store.q_max_result[0].max_id}'::text  as store_result,
+        '{state.q_max.status}'::text            as state_status
+    object: public.stream_sql_exec_a
+
+  stream_sql_exec_b:
+    sql: |
+      select
+        'b'::text                      as stream,
+        '{execution.start_time}'::text as exec_start_time
+    object: public.stream_sql_exec_b
