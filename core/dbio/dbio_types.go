@@ -741,6 +741,8 @@ func (ft FileType) Exts() []string {
 	switch ft {
 	case FileTypeExcel:
 		return []string{".xlsx", ".xlsm", ".xls"}
+	case FileTypeJsonLines:
+		return []string{".jsonl", ".ndjson", ".jsonlines"}
 	default:
 		return []string{ft.Ext()}
 	}

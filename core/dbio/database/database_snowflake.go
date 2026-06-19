@@ -163,15 +163,22 @@ func (conn *SnowflakeConn) Connect(timeOut ...int) error {
 	return err
 }
 
-func getEncodedPrivateKey(pemStr, passphrase string) (epk string, err error) {
-	block, _ := pem.Decode([]byte(pemStr))
-	if block == nil {
-		return "", g.Error("invalid private key data: no PEM block found or missing file")
+func getEncodedPrivateKey(keyStr, passphrase string) (epk string, err error) {
+	keyStr = strings.TrimSpace(keyStr)
+
+	// Normalize the input into raw DER (PKCS#8) bytes.
+	var derBytes []byte
+	if block, _ := pem.Decode([]byte(keyStr)); block != nil {
+		derBytes = block.Bytes
+	} else if b := decodeBase64Any(keyStr); len(b) > 0 {
+		derBytes = b
+	} else {
+		derBytes = []byte(keyStr)
 	}
 
-	key, err := pkcs8.ParsePKCS8PrivateKey(block.Bytes, []byte(passphrase))
+	key, err := pkcs8.ParsePKCS8PrivateKey(derBytes, []byte(passphrase))
 	if err != nil {
-		return "", g.Error(err, "could not parse key")
+		return "", g.Error(err, "could not parse private key (expected PEM, base64-encoded DER, or raw DER PKCS#8)")
 	}
 
 	privKeyPem, err := pkcs8.MarshalPrivateKey(key, nil, nil)
@@ -180,6 +187,22 @@ func getEncodedPrivateKey(pemStr, passphrase string) (epk string, err error) {
 	}
 
 	return base64.URLEncoding.EncodeToString(privKeyPem), nil
+}
+
+// decodeBase64Any attempts to base64-decode s using the standard and URL
+// alphabets, with and without padding.
+func decodeBase64Any(s string) []byte {
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	} {
+		if b, err := enc.DecodeString(s); err == nil && len(b) > 0 {
+			return b
+		}
+	}
+	return nil
 }
 
 func (conn *SnowflakeConn) getOrCreateStage(schema string) string {
@@ -233,6 +256,9 @@ func (conn *SnowflakeConn) GenerateDDL(table Table, data iop.Dataset, temporary 
 		clusterBy = g.F("cluster by (%s)", strings.Join(colNames, ", "))
 	}
 	sql = strings.ReplaceAll(sql, "{cluster_by}", clusterBy)
+
+	// column comments (Snowflake has no secondary indexes)
+	sql = appendIndexesAndComments(strings.TrimSpace(sql), conn, table, data, temporary)
 
 	return strings.TrimSpace(sql), nil
 }
@@ -819,10 +845,12 @@ func (conn *SnowflakeConn) CopyViaStage(table Table, df *iop.Dataflow) (count ui
 		switch fileFormat {
 		case dbio.FileTypeCsv:
 			config.Header = true
+			config.BinaryAsHex = true
 			config.Delimiter = ","
 			_, err = fs.WriteDataflowReady(df, folderPath, fileReadyChn, config)
 		case dbio.FileTypeParquet:
 			if env.UseDuckDbCompute() {
+				config.BinaryAsHex = true
 				_, err = filesys.WriteDataflowReadyViaDuckDB(fs, df, folderPath, fileReadyChn, config)
 			} else {
 				_, err = fs.WriteDataflowReady(df, folderPath, fileReadyChn, config)

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -61,10 +62,24 @@ func (conn *D1Conn) makeRequest(ctx context.Context, method, route string, body 
 		URL = g.F("%s/%s/d1/database/%s/%s", urlBase, conn.AccountID, conn.UUID, route)
 	}
 
+	// buffer body for potential retries (readers are single-use)
+	var bodyBytes []byte
+	if body != nil {
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return nil, g.Error(err, "could not read request body for %s @ %s", method, URL)
+		}
+	}
+
 retry:
 	tries++
 	g.Trace("request #%d for %s @ %s", tries, method, URL)
-	req, err := http.NewRequestWithContext(ctx, method, URL, body)
+
+	var reqBody io.Reader
+	if bodyBytes != nil {
+		reqBody = bytes.NewReader(bodyBytes)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, URL, reqBody)
 	if err != nil {
 		return nil, g.Error(err, "could not make request for %s @ %s", method, URL)
 	}
@@ -79,16 +94,24 @@ retry:
 		return
 	}
 
-	// retry logic
+	// retry logic for transient server errors / rate limits
 	if (resp.StatusCode >= 502 || resp.StatusCode == 429) && tries <= 4 {
 		delay := tries * 5
 		g.Debug("d1 request failed %d: %s. Retrying in %d seconds.", resp.StatusCode, resp.Status, delay)
+		// drain and close body before retry to avoid leaks
+		if resp.Body != nil {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
 		time.Sleep(time.Duration(delay * int(time.Second)))
 		goto retry
 	}
 
 	if resp.StatusCode >= 400 || resp.StatusCode < 200 {
 		respBytes, _ := io.ReadAll(resp.Body)
+		if resp.Body != nil {
+			resp.Body.Close()
+		}
 		err = g.Error("Unexpected Response %d: %s (%s) => %s", resp.StatusCode, resp.Status, URL, string(respBytes))
 		return
 	}
@@ -152,6 +175,9 @@ func (conn *D1Conn) GetDatabases() (data iop.Dataset, err error) {
 	}
 
 	respBytes, err := io.ReadAll(resp.Body)
+	if resp.Body != nil {
+		resp.Body.Close()
+	}
 	if err != nil {
 		return data, g.Error(err, "could not read from request body")
 	}
@@ -179,7 +205,7 @@ type d1ExecResponse struct {
 	Result  []struct {
 		Meta struct {
 			ServedBy    string  `json:"served_by"`
-			Duration    float64 `json:"uuid"`
+			Duration    float64 `json:"duration"`
 			Changes     int64   `json:"changes"`
 			LastRowID   any     `json:"last_row_id"`
 			ChangedDB   bool    `json:"changed_db"`
@@ -236,6 +262,9 @@ func (conn *D1Conn) ExecContext(ctx context.Context, q string, args ...interface
 	}
 
 	respBytes, err := io.ReadAll(resp.Body)
+	if resp.Body != nil {
+		resp.Body.Close()
+	}
 	if err != nil {
 		return nil, g.Error(err, "could not read from request body")
 	}
@@ -285,10 +314,14 @@ func (conn *D1Conn) StreamRowsContext(ctx context.Context, query string, options
 	// g.Warn(string(respBytes))
 	// return nil, g.Error("stopping")
 
-	decoder := json.NewDecoder(resp.Body)
+	respBody := resp.Body
+	decoder := json.NewDecoder(respBody)
 
 	// Read opening object
 	if t, err := decoder.Token(); err != nil || t != json.Delim('{') {
+		if respBody != nil {
+			respBody.Close()
+		}
 		return nil, g.Error(err, "invalid JSON structure: expected opening brace")
 	}
 
@@ -350,8 +383,6 @@ func (conn *D1Conn) StreamRowsContext(ctx context.Context, query string, options
 						t, err = decoder.Token()
 						if err != nil || cast.ToString(t) != "rows" {
 							return nil, g.Error(err, "invalid JSON structure: expected rows array inside results")
-						} else if cast.ToString(t) != "rows" {
-							return nil, g.Error("invalid JSON structure: expected rows array inside results")
 						}
 
 						// Read opening bracket of rows array
@@ -405,6 +436,9 @@ func (conn *D1Conn) StreamRowsContext(ctx context.Context, query string, options
 
 	nextFunc, err := makeNextFunc()
 	if err != nil {
+		if respBody != nil {
+			respBody.Close()
+		}
 		return ds, err
 	}
 
@@ -412,10 +446,16 @@ func (conn *D1Conn) StreamRowsContext(ctx context.Context, query string, options
 	ds.NoDebug = strings.Contains(query, noDebugKey)
 	ds.SetMetadata(conn.GetProp("METADATA"))
 	ds.SetConfig(conn.Props())
+	if respBody != nil {
+		ds.Defer(func() { respBody.Close() })
+	}
 
 	err = ds.Start()
 	if err != nil {
 		queryContext.Cancel()
+		if respBody != nil {
+			respBody.Close()
+		}
 		return ds, g.Error(err, "could start datastream")
 	}
 

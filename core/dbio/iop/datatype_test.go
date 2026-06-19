@@ -1350,3 +1350,19 @@ func TestSelectorOrderFields(t *testing.T) {
 		assert.Equal(t, expected, s.OrderFields(fields))
 	})
 }
+
+func TestFlattenRecord(t *testing.T) {
+	rec := map[string]any{"id": 1, "owner": map[string]any{"login": "x", "id": 9}, "name": "r"}
+
+	t.Run("DepthZeroFlattensAllNesting", func(t *testing.T) {
+		out := FlattenRecord(rec, 0)
+		assert.Equal(t, "x", out["owner__login"])
+		assert.EqualValues(t, 9, out["owner__id"])
+		assert.Nil(t, out["owner"])
+	})
+
+	t.Run("NegativeDepthLeavesRecordUnchanged", func(t *testing.T) {
+		out := FlattenRecord(rec, -1)
+		assert.NotNil(t, out["owner"])
+	})
+}

@@ -343,7 +343,82 @@ func (conn *ClickhouseConn) GenerateDDL(table Table, data iop.Dataset, temporary
 	}
 	ddl = strings.ReplaceAll(ddl, "{partition_by}", partitionBy)
 
+	// ClickHouse data-skipping indexes are declared inline in CREATE TABLE as
+	// `INDEX <name> <expr> TYPE <type> GRANULARITY <n>` clauses within the
+	// column list, not as separate CREATE INDEX statements.
+	if !temporary {
+		table.Dialect = conn.GetType()
+		ddl = conn.injectInlineIndexes(ddl, &table, data.Columns)
+	}
+
 	return strings.TrimSpace(ddl), nil
+}
+
+// injectInlineIndexes appends ClickHouse INDEX clauses into the CREATE TABLE
+// column list. ClickHouse requires a TYPE and GRANULARITY for each index; when
+// the user omits TYPE we default to minmax with granularity 1.
+func (conn *ClickhouseConn) injectInlineIndexes(ddl string, table *Table, columns iop.Columns) string {
+	indexes := table.Indexes(columns)
+	if len(indexes) == 0 {
+		return ddl
+	}
+
+	clauses := []string{}
+	for _, ti := range indexes {
+		def := ti.Def
+		if len(def.Columns) == 0 && def.Expression == "" {
+			continue
+		}
+
+		// warn for unsupported attributes (where/include/unique are no-ops)
+		if def.Where != "" {
+			g.Warn("index %q: clickhouse does not support partial-index 'where'; clause ignored", def.Name)
+		}
+		if len(def.Include) > 0 {
+			g.Warn("index %q: clickhouse does not support covering-index 'include'; clause ignored", def.Name)
+		}
+		if def.Unique {
+			g.Warn("index %q: clickhouse data-skipping indexes are not unique; 'unique' ignored", def.Name)
+		}
+
+		// expression: prefer Expression, else the (comma-joined) column list
+		expr := def.Expression
+		if expr == "" {
+			parts := []string{}
+			for _, c := range def.Columns {
+				if isIndexExpression(c.Name) {
+					parts = append(parts, c.Name)
+				} else {
+					parts = append(parts, conn.Self().Quote(c.Name))
+				}
+			}
+			expr = strings.Join(parts, ", ")
+			if len(parts) > 1 {
+				expr = "(" + expr + ")"
+			}
+		}
+
+		idxType := def.Type
+		if idxType == "" {
+			idxType = "minmax"
+		}
+
+		clauses = append(clauses, g.F("INDEX %s %s TYPE %s GRANULARITY 1", conn.Self().Quote(def.Name), expr, idxType))
+	}
+
+	if len(clauses) == 0 {
+		return ddl
+	}
+
+	// inject before the closing paren of the column list: find ") engine="
+	marker := ") engine="
+	idx := strings.Index(strings.ToLower(ddl), marker)
+	if idx < 0 {
+		g.Warn("could not inject clickhouse inline indexes (unexpected DDL shape)")
+		return ddl
+	}
+	injection := ",\n  " + strings.Join(clauses, ",\n  ")
+	return ddl[:idx] + injection + ddl[idx:]
 }
 
 // BulkImportStream inserts a stream into a table
@@ -659,8 +734,12 @@ func processClickhouseInsertRow(columns iop.Columns, row []any) []any {
 func (conn *ClickhouseConn) GetNativeType(col iop.Column) (nativeType string, err error) {
 	nativeType, err = conn.BaseConn.GetNativeType(col)
 
-	// remove Nullable if part of pk
-	if col.IsKeyType(iop.PrimaryKey) && strings.HasPrefix(nativeType, "Nullable(") {
+	// ClickHouse has no separate NOT NULL clause; non-nullability is expressed by
+	// the absence of the Nullable(T) wrapper. Strip it when the column is part of
+	// the primary key, or explicitly declared not_null via the columns: DSL.
+	// This directly addresses the Discord report (not_null -> Nullable(UUID)).
+	notNull := col.IsKeyType(iop.PrimaryKey) || (col.IsDDLExplicit() && !col.IsNullable())
+	if notNull && strings.HasPrefix(nativeType, "Nullable(") {
 		nativeType = strings.TrimPrefix(nativeType, "Nullable(")
 		nativeType = strings.TrimSuffix(nativeType, ")")
 	}

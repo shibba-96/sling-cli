@@ -298,6 +298,9 @@ func (conn *BigQueryConn) GenerateDDL(table Table, data iop.Dataset, temporary b
 	}
 	sql = strings.ReplaceAll(sql, "{cluster_by}", clusterBy)
 
+	// column descriptions (no general CREATE INDEX in BigQuery)
+	sql = appendColumnComments(strings.TrimSpace(sql), conn, table, data, temporary)
+
 	return strings.TrimSpace(sql), nil
 }
 
@@ -612,6 +615,7 @@ func (conn *BigQueryConn) importStreamConfig(columns iop.Columns) (config iop.St
 		fileFormat = dbio.FileTypeCsv
 	}
 	config.Format = fileFormat
+	config.BinaryAsHex = fileFormat == dbio.FileTypeCsv
 
 	// set max decimal for only numeric
 	{

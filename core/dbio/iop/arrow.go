@@ -584,6 +584,12 @@ func ColumnsToArrowSchema(columns Columns) *arrow.Schema {
 			default:
 				arrowType = arrow.FixedWidthTypes.Timestamp_us // iceberg does not support nano, micro as default
 			}
+		case TimeType, TimezType:
+			// Iceberg Time (microsecond precision), matching iopTypeToIcebergPrimitiveType
+			arrowType = arrow.FixedWidthTypes.Time64us
+		case UUIDType:
+			// Iceberg UUID via the arrow.uuid extension, matching iopTypeToIcebergPrimitiveType
+			arrowType = extensions.NewUUIDType()
 		case StringType, TextType, JsonType:
 			arrowType = arrow.BinaryTypes.String
 		case BinaryType:
@@ -600,6 +606,31 @@ func ColumnsToArrowSchema(columns Columns) *arrow.Schema {
 	}
 
 	return arrow.NewSchema(fields, nil)
+}
+
+// parseTimeOfDayE parses a value into time.Time, also handling bare time-of-day
+// strings (e.g. "08:30:00") that cast.ToTimeE rejects for lacking a date
+func parseTimeOfDayE(val interface{}) (time.Time, error) {
+	if t, err := cast.ToTimeE(val); err == nil {
+		return t, nil
+	}
+	s := strings.TrimSpace(cast.ToString(val))
+	for _, layout := range []string{
+		"15:04:05.999999999",
+		"15:04:05.999999",
+		"15:04:05.999",
+		"15:04:05",
+		"15:04:05.999999999Z07:00",
+		"15:04:05.999999Z07:00",
+		"15:04:05Z07:00",
+		"15:04:05-07",
+		"15:04",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, g.Error("could not parse time-of-day value: %v", val)
 }
 
 func AppendToBuilder(builder array.Builder, col *Column, val interface{}) {
@@ -863,7 +894,7 @@ func AppendToBuilder(builder array.Builder, col *Column, val interface{}) {
 			}
 		}
 	case *array.Time32Builder:
-		tVal, _ := cast.ToTimeE(val)
+		tVal, _ := parseTimeOfDayE(val)
 		// Time32 can be seconds or milliseconds since midnight
 		dt := b.Type().(*arrow.Time32Type)
 		if dt.Unit == arrow.Second {
@@ -874,7 +905,7 @@ func AppendToBuilder(builder array.Builder, col *Column, val interface{}) {
 			b.Append(arrow.Time32(millis))
 		}
 	case *array.Time64Builder:
-		tVal, _ := cast.ToTimeE(val)
+		tVal, _ := parseTimeOfDayE(val)
 		// Time64 can be microseconds or nanoseconds since midnight
 		dt := b.Type().(*arrow.Time64Type)
 		if dt.Unit == arrow.Microsecond {

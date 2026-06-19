@@ -75,6 +75,15 @@ func NewJSONStream(ds *Datastream, decoder decoderLike, flatten int, jmespath st
 
 // SetOrderedKeys publishes the post-select column order. First call wins;
 // subsequent calls are dropped (the channel is 1-buffered).
+// Flatten returns the jsonStream's flatten depth (max nesting level expanded
+// into `__`-joined keys). Negative means records are kept as raw JSON.
+func (js *jsonStream) Flatten() int {
+	if js == nil {
+		return 0
+	}
+	return js.flatten
+}
+
 func (js *jsonStream) SetOrderedKeys(keys []string) {
 	if js == nil || js.orderedKeysCh == nil {
 		return
@@ -290,6 +299,22 @@ func (js *jsonStream) orderKeys(rec map[string]any) []string {
 	}
 	sort.Strings(remaining)
 	return append(keys, remaining...)
+}
+
+// FlattenRecord flattens a record's nested objects/arrays into `__`-joined
+// keys, matching the jsonStream's flattening (Delimiter "__", Safe). depth is
+// the max flatten level (use 1 for the API default); depth < 0 returns the
+// record unchanged. This lets callers apply a `select` against flattened
+// field names (e.g. `owner__login`) the same way the stream does downstream.
+func FlattenRecord(rec map[string]any, depth int) map[string]any {
+	if depth < 0 {
+		return rec
+	}
+	out, err := flat.Flatten(rec, &flat.Options{Delimiter: "__", Safe: true, MaxDepth: depth})
+	if err != nil {
+		return rec
+	}
+	return out
 }
 
 func (js *jsonStream) addColumn(cols ...Column) {
@@ -561,3 +586,4 @@ func FirstObjectKeysInOrder(b []byte) ([]string, error) {
 	}
 	return keys, nil
 }
+

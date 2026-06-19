@@ -338,8 +338,16 @@ func (conn *PostgresConn) GenerateDDL(table Table, data iop.Dataset, temporary b
 	}
 	ddl = strings.ReplaceAll(ddl, "{partition_by}", partitionBy)
 
-	for _, index := range table.Indexes(data.Columns) {
-		ddl = ddl + ";\n" + index.CreateDDL()
+	if !temporary {
+		for _, index := range table.Indexes(data.Columns) {
+			if idxDDL := index.CreateDDL(); idxDDL != "" {
+				ddl = ddl + ";\n" + idxDDL
+			}
+		}
+
+		for _, stmt := range table.ColumnCommentsDDL(conn, data.Columns) {
+			ddl = ddl + ";\n" + stmt
+		}
 	}
 
 	return strings.TrimSpace(ddl), nil

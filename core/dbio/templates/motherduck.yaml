@@ -9,6 +9,7 @@ core:
   truncate_table: delete from {table}
   insert_option: ""
   modify_column: 'alter {column} type {type}'
+  add_column_comment: COMMENT ON COLUMN {table}."{column}" IS {comment}
 
 
 metadata:

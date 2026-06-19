@@ -1,0 +1,149 @@
+# Test SQL Server binary fidelity (varbinary(max) -> varbinary(max))
+# Bug: binary values were serialized as text (BCP CSV / nvarchar bind), corrupting
+# or truncating the data. Fix: hex-encode binary so bcp -w decodes into varbinary,
+# and coerce binary to []byte for the cursor path (processSQLServerInsertRow).
+# Two streams cover both write paths: bcp (use_bulk default) and cursor (use_bulk false).
+
+source: MSSQL
+target: MSSQL
+
+defaults:
+  mode: full-refresh
+
+hooks:
+  start:
+    - type: query
+      connection: '{source.name}'
+      query: |
+        IF OBJECT_ID('dbo.binary_src','U') IS NOT NULL DROP TABLE dbo.binary_src;
+        CREATE TABLE dbo.binary_src (id int PRIMARY KEY, cert_blob varbinary(max));
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        INSERT INTO dbo.binary_src (id, cert_blob) VALUES
+        (1, 0x25504446312D312E340AE2E3CFD30A312030206F626A0A00FF00FE0A2554697465),
+        (2, 0x000102030405060708090A0B0C0D0E0FFEFFFDFC2C220A0D5C4E),
+        (3, NULL);
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        IF OBJECT_ID('dbo.binary_dest','U') IS NOT NULL DROP TABLE dbo.binary_dest;
+        IF OBJECT_ID('dbo.binary_dest_cursor','U') IS NOT NULL DROP TABLE dbo.binary_dest_cursor;
+
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        SELECT id, lower(convert(varchar(max), cert_blob, 2)) as h
+        FROM dbo.binary_src WHERE cert_blob IS NOT NULL ORDER BY id
+      into: src
+
+    # --- bcp path: dbo.binary_dest ---
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT data_type as data_type FROM information_schema.columns
+        WHERE table_name = 'binary_dest' AND column_name = 'cert_blob'
+      into: bcp_coltype
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT id, lower(convert(varchar(max), cert_blob, 2)) as h
+        FROM dbo.binary_dest WHERE cert_blob IS NOT NULL ORDER BY id
+      into: bcp_dst
+
+    - type: query
+      connection: '{target.name}'
+      query: SELECT COUNT(*) as cnt FROM dbo.binary_dest WHERE cert_blob IS NULL
+      into: bcp_null
+
+    # --- cursor path: dbo.binary_dest_cursor ---
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT data_type as data_type FROM information_schema.columns
+        WHERE table_name = 'binary_dest_cursor' AND column_name = 'cert_blob'
+      into: cur_coltype
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT id, lower(convert(varchar(max), cert_blob, 2)) as h
+        FROM dbo.binary_dest_cursor WHERE cert_blob IS NOT NULL ORDER BY id
+      into: cur_dst
+
+    - type: query
+      connection: '{target.name}'
+      query: SELECT COUNT(*) as cnt FROM dbo.binary_dest_cursor WHERE cert_blob IS NULL
+      into: cur_null
+
+    - type: log
+      message: |
+        bcp    data_type={store.bcp_coltype[0].data_type} row1={store.src[0].h == store.bcp_dst[0].h} row2={store.src[1].h == store.bcp_dst[1].h} nulls={store.bcp_null[0].cnt}
+        cursor data_type={store.cur_coltype[0].data_type} row1={store.src[0].h == store.cur_dst[0].h} row2={store.src[1].h == store.cur_dst[1].h} nulls={store.cur_null[0].cnt}
+
+    # bcp path checks
+    - type: check
+      check: store.bcp_coltype[0].data_type == "varbinary"
+      failure_message: "[bcp] expected varbinary, got {store.bcp_coltype[0].data_type}"
+
+    - type: check
+      check: store.src[0].h == store.bcp_dst[0].h
+      failure_message: "[bcp] row 1 (PDF) binary corrupted"
+
+    - type: check
+      check: store.src[1].h == store.bcp_dst[1].h
+      failure_message: "[bcp] row 2 (full byte range) binary corrupted"
+
+    - type: check
+      check: int_parse(store.bcp_null[0].cnt) == 1
+      failure_message: "[bcp] NULL binary not preserved (got {store.bcp_null[0].cnt} nulls)"
+
+    # cursor path checks
+    - type: check
+      check: store.cur_coltype[0].data_type == "varbinary"
+      failure_message: "[cursor] expected varbinary, got {store.cur_coltype[0].data_type}"
+
+    - type: check
+      check: store.src[0].h == store.cur_dst[0].h
+      failure_message: "[cursor] row 1 (PDF) binary corrupted"
+
+    - type: check
+      check: store.src[1].h == store.cur_dst[1].h
+      failure_message: "[cursor] row 2 (full byte range) binary corrupted"
+
+    - type: check
+      check: int_parse(store.cur_null[0].cnt) == 1
+      failure_message: "[cursor] NULL binary not preserved (got {store.cur_null[0].cnt} nulls)"
+
+    - type: log
+      message: "SUCCESS: SQL Server binary fidelity test passed (bcp + cursor)"
+
+    - type: query
+      connection: '{source.name}'
+      query: "IF OBJECT_ID('dbo.binary_src','U') IS NOT NULL DROP TABLE dbo.binary_src"
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        IF OBJECT_ID('dbo.binary_dest','U') IS NOT NULL DROP TABLE dbo.binary_dest;
+        IF OBJECT_ID('dbo.binary_dest_cursor','U') IS NOT NULL DROP TABLE dbo.binary_dest_cursor;
+
+streams:
+  # bcp path (use_bulk default true -> fast bcp -w hex load)
+  dbo.binary_src:
+    object: dbo.binary_dest
+
+  # cursor path (use_bulk false -> InsertBatchStream / processSQLServerInsertRow)
+  binary_src_cursor:
+    sql: select * from dbo.binary_src
+    object: dbo.binary_dest_cursor
+    target_options:
+      use_bulk: false

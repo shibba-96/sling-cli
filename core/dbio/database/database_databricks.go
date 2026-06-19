@@ -680,6 +680,9 @@ func (conn *DatabricksConn) GenerateDDL(table Table, data iop.Dataset, temporary
 		sql += clusterBy
 	}
 
+	// column comments (Delta has no secondary CREATE INDEX)
+	sql = appendColumnComments(strings.TrimSpace(sql), conn, table, data, temporary)
+
 	return strings.TrimSpace(sql) + ";", nil
 }
 

@@ -1,0 +1,55 @@
+# Column DDL constraints test: ClickHouse target
+# ClickHouse (MergeTree) does not have RDBMS-style PRIMARY KEY / UNIQUE / secondary
+# index semantics that map to the column DSL, and emits no column comments. The one
+# constraint it does honor is not_null, encoded as the ABSENCE of Nullable(T).
+# So this test only sets/verifies not_null (and that nullable columns stay Nullable).
+env:
+  SOURCE: postgres
+  TARGET: clickhouse
+  SCHEMA: default
+
+steps:
+  - connection: '{env.TARGET}'
+    query: drop table if exists {env.SCHEMA}.cddl_dst
+
+  - type: replication
+    id: repl
+    replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+      streams:
+        public.cddl_src:
+          object: '{env.SCHEMA}.cddl_dst'
+          columns:
+            id: bigint not_null
+            email: string(255) not_null
+            org_id: string(255) not_null
+            region: string(255)
+            notes: string(255)
+
+  # not_null columns must NOT be Nullable(...)
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from system.columns
+      where database = '{env.SCHEMA}' and table = 'cddl_dst'
+        and name in ('id','email','org_id') and type not like 'Nullable(%'
+    into: notnull_cnt
+  - type: check
+    check: int_parse(store.notnull_cnt[0].cnt) == 3
+    message: 'expected 3 non-Nullable columns, got {store.notnull_cnt[0].cnt}'
+
+  # nullable columns must be Nullable(...)
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from system.columns
+      where database = '{env.SCHEMA}' and table = 'cddl_dst'
+        and name in ('region','notes') and type like 'Nullable(%'
+    into: nullable_cnt
+  - type: check
+    check: int_parse(store.nullable_cnt[0].cnt) == 2
+    message: 'expected 2 Nullable columns, got {store.nullable_cnt[0].cnt}'
+
+  - type: log
+    message: 'SUCCESS: clickhouse column DDL verified'

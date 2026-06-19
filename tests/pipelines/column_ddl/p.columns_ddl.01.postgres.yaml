@@ -1,0 +1,86 @@
+# Column DDL constraints test: PostgreSQL target
+# Reads public.cddl_src (built by the master pipeline) and applies the column
+# modifier DSL (not_null, primary_key, unique_index, index, description), then
+# inspects the catalog to confirm each constraint landed on the right column.
+env:
+  SOURCE: postgres
+  TARGET: postgres
+  SCHEMA: public
+
+steps:
+  - connection: '{env.TARGET}'
+    query: drop table if exists {env.SCHEMA}.cddl_dst cascade
+
+  - type: replication
+    id: repl
+    replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+      streams:
+        public.cddl_src:
+          object: '{env.SCHEMA}.cddl_dst'
+          columns:
+            id: bigint not_null primary_key
+            email: string(255) not_null unique_index
+            org_id: string(255) not_null
+            region: string(255) index
+            notes: string(255) description('user notes')
+
+  # nullability: id/email/org_id NOT NULL, region/notes nullable
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from information_schema.columns
+      where table_schema = '{env.SCHEMA}' and table_name = 'cddl_dst'
+        and is_nullable = 'NO' and column_name in ('id','email','org_id')
+    into: notnull_cnt
+  - type: check
+    check: int_parse(store.notnull_cnt[0].cnt) == 3
+    message: 'expected 3 NOT NULL columns, got {store.notnull_cnt[0].cnt}'
+
+  # primary key on id
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from information_schema.table_constraints
+      where table_schema = '{env.SCHEMA}' and table_name = 'cddl_dst'
+        and constraint_type = 'PRIMARY KEY'
+    into: pk_cnt
+  - type: check
+    check: int_parse(store.pk_cnt[0].cnt) == 1
+    message: 'expected 1 primary key, got {store.pk_cnt[0].cnt}'
+
+  # unique index on email, plain index on region
+  - connection: '{env.TARGET}'
+    query: |
+      select indexname, indexdef from pg_indexes
+      where schemaname = '{env.SCHEMA}' and tablename = 'cddl_dst'
+        and indexname = 'idx_cddl_dst_email'
+    into: uniq_idx
+  - type: check
+    check: contains(store.uniq_idx[0].indexdef, "UNIQUE")
+    message: 'expected unique index on email, got {store.uniq_idx[0].indexdef}'
+
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from pg_indexes
+      where schemaname = '{env.SCHEMA}' and tablename = 'cddl_dst'
+        and indexname = 'idx_cddl_dst_region'
+    into: plain_idx
+  - type: check
+    check: int_parse(store.plain_idx[0].cnt) == 1
+    message: 'expected index on region, got {store.plain_idx[0].cnt}'
+
+  # description / column comment on notes
+  - connection: '{env.TARGET}'
+    query: |
+      select col_description(('{env.SCHEMA}.cddl_dst')::regclass,
+        (select ordinal_position from information_schema.columns
+         where table_schema='{env.SCHEMA}' and table_name='cddl_dst' and column_name='notes')::int) comment
+    into: notes_comment
+  - type: check
+    check: store.notes_comment[0].comment == "user notes"
+    message: 'expected comment "user notes" on notes, got {store.notes_comment[0].comment}'
+
+  - type: log
+    message: 'SUCCESS: postgres column DDL verified'

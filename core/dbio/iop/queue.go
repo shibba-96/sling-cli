@@ -2,12 +2,14 @@ package iop
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"os"
 	"path"
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/flarco/g"
 	"github.com/flarco/g/json"
@@ -16,6 +18,7 @@ import (
 )
 
 type Queue struct {
+	Name    string        `json:"name"`
 	Path    string        `json:"path"`
 	File    *os.File      `json:"-"`
 	Reader  *bufio.Reader `json:"-"`
@@ -25,6 +28,26 @@ type Queue struct {
 	reading bool // whether queue is in reading mode
 	writing bool // whether queue is in writing mode
 	keep    bool
+}
+
+// donePath is the sentinel file (next to the queue file, so it works across
+// processes) signaling the producer finished writing. Tailing readers watch it.
+func (q *Queue) donePath() string {
+	return q.Path + ".done"
+}
+
+// MarkDone writes the done-sentinel; call after the producer flushed all writes.
+func (q *Queue) MarkDone() error {
+	f, err := os.OpenFile(q.donePath(), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return g.Error(err, "could not write queue done-sentinel: %s", q.donePath())
+	}
+	return f.Close()
+}
+
+// IsDone reports whether the producer has signaled completion.
+func (q *Queue) IsDone() bool {
+	return g.PathExists(q.donePath())
 }
 
 var queues = cmap.New[*Queue]()
@@ -63,6 +86,7 @@ func NewQueue(name string) (q *Queue, err error) {
 	}
 
 	q = &Queue{
+		Name:    name,
 		Path:    tmpFile.Name(),
 		File:    tmpFile,
 		writing: true, // start in writing mode
@@ -166,6 +190,24 @@ func explodeItems(data any) ([]any, bool) {
 		items[i] = val.Index(i).Interface()
 	}
 	return items, true
+}
+
+// Flush flushes and syncs buffered writes to disk; call before MarkDone.
+func (q *Queue) Flush() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.Writer != nil {
+		if err := q.Writer.Flush(); err != nil {
+			return g.Error(err, "failed to flush queue writer")
+		}
+	}
+	if q.File != nil && q.writing {
+		if err := q.File.Sync(); err != nil {
+			return g.Error(err, "failed to sync queue file")
+		}
+	}
+	return nil
 }
 
 // startWriting prepares the queue for writing
@@ -360,6 +402,7 @@ func (q *Queue) Close() error {
 			if err := os.Remove(path); err != nil {
 				return err
 			}
+			os.Remove(q.donePath()) // best-effort sentinel cleanup
 		}
 
 		q.reading = false
@@ -374,4 +417,96 @@ func CloseQueues() {
 	for _, q := range queues.Items() {
 		q.Close()
 	}
+}
+
+// QueuePollInterval is how often a tailing reader re-checks the file at EOF.
+var QueuePollInterval = 50 * time.Millisecond
+
+// QueueReader is an independent tailing reader over a Queue file. Each consumer
+// gets its own fd and offset, so all consumers see every record (broadcast).
+// Polls for growth + watches the done-sentinel (no OS file-watch); cross-platform.
+type QueueReader struct {
+	queue  *Queue
+	file   *os.File
+	reader *bufio.Reader
+}
+
+// NewReader opens a fresh tailing reader at the start of the file; caller Closes it.
+func (q *Queue) NewReader() (*QueueReader, error) {
+	// flush our writer (in-process); cross-process the producer flushes its own
+	q.mu.Lock()
+	if q.Writer != nil {
+		q.Writer.Flush()
+	}
+	q.mu.Unlock()
+
+	// read-only; Go opens with shared access on Windows, so concurrent append is fine
+	file, err := os.OpenFile(q.Path, os.O_RDONLY, 0644)
+	if err != nil {
+		return nil, g.Error(err, "could not open queue file for tailing: %s", q.Path)
+	}
+
+	return &QueueReader{
+		queue:  q,
+		file:   file,
+		reader: bufio.NewReader(file),
+	}, nil
+}
+
+// Next returns the next record, blocking (polling) at EOF until the producer
+// appends more or signals done. Returns hasMore=false when done and drained, or
+// when ctx is cancelled (so a failing sibling unblocks all readers promptly).
+func (qr *QueueReader) Next(ctx context.Context) (data any, hasMore bool, err error) {
+	for {
+		line, readErr := qr.reader.ReadString('\n')
+
+		if readErr == nil {
+			return decodeJSONLine(line), true, nil
+		}
+
+		if readErr != io.EOF {
+			return nil, false, g.Error(readErr, "failed to read from queue: %s", qr.queue.Path)
+		}
+
+		// EOF with a partial (no-newline) line: emit it if done, else wait for the newline
+		if len(line) > 0 {
+			if qr.queue.IsDone() {
+				return decodeJSONLine(line), true, nil
+			}
+			if seekErr := qr.rewind(int64(len(line))); seekErr != nil {
+				return nil, false, seekErr
+			}
+		} else if qr.queue.IsDone() {
+			return nil, false, nil // clean EOF and producer done
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, false, nil
+		case <-time.After(QueuePollInterval):
+		}
+
+		// re-create reader so it picks up newly-appended bytes (bufio caches EOF)
+		qr.reader = bufio.NewReader(qr.file)
+	}
+}
+
+// rewind moves the file offset back n bytes to re-read a partial trailing line.
+func (qr *QueueReader) rewind(n int64) error {
+	if _, err := qr.file.Seek(-n, io.SeekCurrent); err != nil {
+		return g.Error(err, "failed to rewind queue reader: %s", qr.queue.Path)
+	}
+	qr.reader = bufio.NewReader(qr.file)
+	return nil
+}
+
+// Close releases the reader's file descriptor.
+func (qr *QueueReader) Close() error {
+	if qr.file != nil {
+		err := qr.file.Close()
+		qr.file = nil
+		qr.reader = nil
+		return err
+	}
+	return nil
 }
