@@ -1,0 +1,105 @@
+# Test Postgres binary fidelity (bytea -> bytea)
+# Ensures binary values (PDF bytes, full byte range, large payloads, NULL) survive
+# replication byte-for-byte and the destination column stays bytea.
+
+source: POSTGRES
+target: POSTGRES
+
+defaults:
+  mode: full-refresh
+
+hooks:
+  start:
+    - type: query
+      connection: '{source.name}'
+      query: |
+        DROP TABLE IF EXISTS public.binary_src;
+        CREATE TABLE public.binary_src (id int PRIMARY KEY, cert_blob bytea);
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        INSERT INTO public.binary_src (id, cert_blob) VALUES
+        (1, decode('25504446312D312E340AE2E3CFD30A312030206F626A0A00FF00FE0A2554697465','hex')),
+        (2, decode('000102030405060708090A0B0C0D0E0FFEFFFDFC2C220A0D5C4E','hex')),
+        (3, decode(repeat('DEADBEEF', 32768), 'hex')),
+        (4, NULL);
+
+    - type: query
+      connection: '{target.name}'
+      query: DROP TABLE IF EXISTS public.binary_dest
+
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT data_type as data_type FROM information_schema.columns
+        WHERE table_name = 'binary_dest' AND column_name = 'cert_blob'
+      into: coltype
+
+    - type: log
+      message: "dest cert_blob data_type: {store.coltype[0].data_type}"
+
+    - type: check
+      check: store.coltype[0].data_type == "bytea"
+      failure_message: "expected bytea, got {store.coltype[0].data_type}"
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        SELECT id, md5(cert_blob) as m, length(cert_blob) as l
+        FROM public.binary_src WHERE cert_blob IS NOT NULL ORDER BY id
+      into: src
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT id, md5(cert_blob) as m, length(cert_blob) as l
+        FROM public.binary_dest WHERE cert_blob IS NOT NULL ORDER BY id
+      into: dst
+
+    - type: log
+      message: |
+        row1 md5_match={store.src[0].m == store.dst[0].m} len {store.src[0].l}/{store.dst[0].l}
+        row2 md5_match={store.src[1].m == store.dst[1].m} len {store.src[1].l}/{store.dst[1].l}
+        row3 md5_match={store.src[2].m == store.dst[2].m} len {store.src[2].l}/{store.dst[2].l}
+
+    - type: check
+      check: store.src[0].m == store.dst[0].m
+      failure_message: "row 1 (PDF) bytea corrupted"
+
+    - type: check
+      check: store.src[1].m == store.dst[1].m
+      failure_message: "row 2 (full byte range) bytea corrupted"
+
+    - type: check
+      check: store.src[2].m == store.dst[2].m
+      failure_message: "row 3 (128KB) bytea corrupted"
+
+    - type: query
+      connection: '{target.name}'
+      query: SELECT COUNT(*) as cnt FROM public.binary_dest WHERE cert_blob IS NULL
+      into: null_count
+
+    - type: check
+      check: int_parse(store.null_count[0].cnt) == 1
+      failure_message: "NULL bytea not preserved (got {store.null_count[0].cnt} nulls)"
+
+    - type: log
+      message: "SUCCESS: Postgres binary fidelity test passed"
+
+    - type: query
+      connection: '{source.name}'
+      query: DROP TABLE IF EXISTS public.binary_src
+
+    - type: query
+      connection: '{target.name}'
+      query: DROP TABLE IF EXISTS public.binary_dest
+
+streams:
+  public.binary_src:
+    object: public.binary_dest

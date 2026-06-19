@@ -1,0 +1,63 @@
+# Column DDL constraints test: MotherDuck target
+# Verifies not_null, primary_key, unique_index, index and description (comment).
+env:
+  SOURCE: postgres
+  TARGET: motherduck
+  SCHEMA: main
+
+steps:
+  # no pre-drop on the target: DuckDB is single-writer per file, and holding a
+  # connection open here would block the replication step. full-refresh recreates.
+  - type: replication
+    id: repl
+    replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+      streams:
+        public.cddl_src:
+          object: '{env.SCHEMA}.cddl_dst'
+          columns:
+            id: bigint not_null primary_key
+            email: string(255) not_null unique_index
+            org_id: string(255) not_null
+            region: string(255) index
+            notes: string(255) description('user notes')
+
+  # nullability
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from duckdb_columns()
+      where table_name = 'cddl_dst' and not is_nullable and column_name in ('id','email','org_id')
+    into: notnull_cnt
+  - type: check
+    check: int_parse(store.notnull_cnt[0].cnt) == 3
+    message: 'expected 3 NOT NULL columns, got {store.notnull_cnt[0].cnt}'
+
+  # unique index on email (cast bool -> int for a stable check comparison)
+  - connection: '{env.TARGET}'
+    query: select cast(is_unique as int) uniq from duckdb_indexes() where table_name = 'cddl_dst' and index_name = 'idx_cddl_dst_email'
+    into: uniq_idx
+  - type: check
+    check: int_parse(store.uniq_idx[0].uniq) == 1
+    message: 'expected unique index on email, got {store.uniq_idx[0].uniq}'
+
+  # plain index on region
+  - connection: '{env.TARGET}'
+    query: select cast(is_unique as int) uniq from duckdb_indexes() where table_name = 'cddl_dst' and index_name = 'idx_cddl_dst_region'
+    into: plain_idx
+  - type: check
+    check: int_parse(store.plain_idx[0].uniq) == 0
+    message: 'expected non-unique index on region, got {store.plain_idx[0].uniq}'
+
+  # description / column comment
+  - connection: '{env.TARGET}'
+    query: select comment from duckdb_columns() where table_name = 'cddl_dst' and column_name = 'notes'
+    into: notes_comment
+  - type: check
+    check: store.notes_comment[0].comment == "user notes"
+    message: 'expected comment "user notes" on notes, got {store.notes_comment[0].comment}'
+
+  - type: log
+    message: 'SUCCESS: motherduck column DDL verified'

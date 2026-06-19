@@ -90,29 +90,29 @@ test-python-main:
     #!/usr/bin/env bash
     echo "TESTING Python"
     export SLING_BINARY="$PWD/cmd/sling/sling"
-    cd ../sling-python/sling && python -m pytest tests/tests.py -v && cd -
-    cd ../sling-python/sling && python -m pytest tests/test_api_spec.py -v && cd -
+    cd ../sling-python/sling && uv sync --group test && uv run python -m pytest tests/tests.py -v && cd -
+    cd ../sling-python/sling && uv run python -m pytest tests/test_api_spec.py -v && cd -
 
 # Test Python class without ARROW
 test-python-arrow-false:
     #!/usr/bin/env bash
     echo "TESTING Python class (ARROW=false)"
     export SLING_BINARY="$PWD/cmd/sling/sling"
-    cd ../sling-python/sling && SLING_USE_ARROW=false python -m pytest tests/test_sling_class.py -v && cd -
+    cd ../sling-python/sling && uv sync --group test && SLING_USE_ARROW=false uv run python -m pytest tests/test_sling_class.py -v && cd -
 
 # Test Python class with ARROW
 test-python-arrow-true:
     #!/usr/bin/env bash
     echo "TESTING Python class (ARROW=true)"
     export SLING_BINARY="$PWD/cmd/sling/sling"
-    cd ../sling-python/sling && SLING_USE_ARROW=true python -m pytest tests/test_sling_class.py -v && cd -
+    cd ../sling-python/sling && uv sync --group test && SLING_USE_ARROW=true uv run python -m pytest tests/test_sling_class.py -v && cd -
 
 # Test Python Connection class (sling conns exec/test, arrow IPC, CSV streaming, limit)
 test-python-conns:
     #!/usr/bin/env bash
     echo "TESTING Python Connection class"
     export SLING_BINARY="$PWD/cmd/sling/sling"
-    cd ../sling-python/sling && python -m pytest tests/test_connection.py -v && cd -
+    cd ../sling-python/sling && uv sync --group test && uv run python -m pytest tests/test_connection.py -v && cd -
 
 # Run all Python tests
 test-python: test-python-main test-python-arrow-false test-python-arrow-true test-python-conns

@@ -23,6 +23,10 @@ core:
   # - All strategies work on Primary Key tables (created with table_keys.primary)
   # - Only 'insert' works on Duplicate Key tables (default)
   # See: https://docs.starrocks.io/docs/sql-reference/sql-statements/table_bucket_part_index/DELETE/
+  # StarRocks Primary Key tables perform a native upsert on plain INSERT (rows
+  # with an existing primary key are replaced), which is the desired incremental
+  # behavior. Adding a NOT EXISTS / NOT IN skip-existing guard would defeat that
+  # by skipping updates, so merge_insert is left as a plain INSERT.
   merge_insert: |
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM {src_table} src

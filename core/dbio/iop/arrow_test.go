@@ -6,6 +6,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/extensions"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
@@ -185,4 +189,81 @@ func TestArrowReaderWithSelectedColumns(t *testing.T) {
 	}
 
 	assert.Equal(t, len(testData), rowCount)
+}
+
+// ColumnsToArrowSchema must map time/timez/uuid to their native Arrow types so the
+// schema matches iopTypeToIcebergPrimitiveType. Previously they fell through to
+// String, causing "cannot promote string to time/uuid" when appending to Iceberg.
+func TestArrowColumnsToArrowSchemaTimeUUID(t *testing.T) {
+	columns := Columns{
+		{Name: "t", Type: TimeType, Position: 1},
+		{Name: "tz", Type: TimezType, Position: 2},
+		{Name: "u", Type: UUIDType, Position: 3},
+	}
+
+	schema := ColumnsToArrowSchema(columns)
+
+	assert.IsType(t, &arrow.Time64Type{}, schema.Field(0).Type)
+	assert.IsType(t, &arrow.Time64Type{}, schema.Field(1).Type)
+	_, isUUID := schema.Field(2).Type.(*extensions.UUIDType)
+	assert.True(t, isUUID, "uuid column should map to the arrow.uuid extension type, got %T", schema.Field(2).Type)
+}
+
+// AppendToBuilder must fill a Time64 builder from a bare time-of-day string (as
+// emitted by SQL `time` columns). Previously cast.ToTimeE rejected these and the
+// value silently zeroed to 00:00:00.
+func TestArrowAppendToBuilderTimeOfDay(t *testing.T) {
+	col := &Column{Name: "t", Type: TimeType}
+	builder := array.NewTime64Builder(memory.NewGoAllocator(), &arrow.Time64Type{Unit: arrow.Microsecond})
+	defer builder.Release()
+
+	AppendToBuilder(builder, col, "08:30:00.0000000")
+	AppendToBuilder(builder, col, "08:30:00")
+	AppendToBuilder(builder, col, nil)
+
+	arr := builder.NewTime64Array()
+	defer arr.Release()
+
+	wantMicros := arrow.Time64(int64((8*3600 + 30*60) * 1e6))
+	assert.Equal(t, wantMicros, arr.Value(0), "fractional time-of-day not parsed")
+	assert.Equal(t, wantMicros, arr.Value(1), "plain time-of-day not parsed")
+	assert.True(t, arr.IsNull(2), "nil should append null")
+}
+
+func TestArrowParseTimeOfDayE(t *testing.T) {
+	for _, s := range []string{"08:30:00.0000000", "08:30:00", "08:30"} {
+		tVal, err := parseTimeOfDayE(s)
+		assert.NoError(t, err, "input %q", s)
+		assert.Equal(t, 8, tVal.Hour())
+		assert.Equal(t, 30, tVal.Minute())
+	}
+
+	// full datetime still works (delegates to cast.ToTimeE)
+	tVal, err := parseTimeOfDayE("2023-01-02 15:04:05")
+	assert.NoError(t, err)
+	assert.Equal(t, 15, tVal.Hour())
+
+	_, err = parseTimeOfDayE("not a time")
+	assert.Error(t, err)
+}
+
+// AppendToBuilder must round-trip a canonical UUID string into the arrow.uuid
+// extension builder. With the schema fix, uuid columns now map to UUIDBuilder
+// instead of String, so this value path is exercised end-to-end.
+func TestArrowAppendToBuilderUUID(t *testing.T) {
+	col := &Column{Name: "u", Type: UUIDType}
+	builder := extensions.NewUUIDBuilder(memory.NewGoAllocator())
+	defer builder.Release()
+
+	AppendToBuilder(builder, col, "B86D9F47-F5E1-44A1-9576-1AEF61206EB1") // uppercase
+	AppendToBuilder(builder, col, "b86d9f47-f5e1-44a1-9576-1aef61206eb1") // lowercase
+	AppendToBuilder(builder, col, nil)
+
+	arr := builder.NewArray().(*extensions.UUIDArray)
+	defer arr.Release()
+
+	want := "b86d9f47-f5e1-44a1-9576-1aef61206eb1"
+	assert.Equal(t, want, arr.ValueStr(0), "uppercase uuid should normalize and round-trip")
+	assert.Equal(t, want, arr.ValueStr(1), "lowercase uuid should round-trip")
+	assert.True(t, arr.IsNull(2), "nil should append null")
 }

@@ -360,6 +360,7 @@ type Endpoint struct {
 
 type jsonStream interface {
 	SetOrderedKeys(keys []string) // to maintain column order
+	Flatten() int                 // flatten depth, to select flattened field names
 }
 
 func (ep *Endpoint) SetStateVal(key string, val any) {
@@ -524,6 +525,18 @@ func (ep *Endpoint) Evaluate(expr string, state map[string]interface{}) (result 
 	return ep.eval.Evaluate(expr, state, iop.GlobalFunctionMap)
 }
 
+// renderSequenceState renders the endpoint's state templates in-place, the same
+// way the main request path does via renderInitial().
+func (ep *Endpoint) renderSequenceState() error {
+	iter := &Iteration{
+		id:       g.F("seq.%s", ep.Name),
+		endpoint: ep,
+		state:    ep.State,
+		context:  g.NewContext(ep.context.Ctx),
+	}
+	return iter.renderInitial()
+}
+
 // Names returns names in alphabetical order
 func (eps Endpoints) Names() (names []string) {
 	for _, e := range eps {
@@ -589,6 +602,42 @@ func (eps Endpoints) HasUpstreams(endpointName string) (upstreams []string) {
 	}
 
 	return upstreams
+}
+
+// IteratesOverQueue reports whether the endpoint iterates over a queue.
+func (ep *Endpoint) IteratesOverQueue() bool {
+	return ep.QueueIterName() != ""
+}
+
+// QueueIterName returns the queue name iterated over (e.g. "order_ids"), or "".
+func (ep *Endpoint) QueueIterName() string {
+	if over, ok := ep.Iterate.Over.(string); ok {
+		if strings.HasPrefix(over, "queue.") {
+			return strings.TrimPrefix(over, "queue.")
+		}
+	}
+	return ""
+}
+
+// ConsumesQueueImmediately reports whether the endpoint tails a queue live,
+// rather than deferring until the producer finishes (the default).
+func (ep *Endpoint) ConsumesQueueImmediately() bool {
+	return ep.IteratesOverQueue() && ep.Iterate.Consume == ConsumeImmediate
+}
+
+// ProducerQueueNames returns the queues this endpoint produces to (processor outputs).
+func (ep *Endpoint) ProducerQueueNames() (names []string) {
+	seen := map[string]bool{}
+	for _, processor := range ep.Response.Processors {
+		if strings.HasPrefix(processor.Output, "queue.") {
+			name := strings.TrimPrefix(processor.Output, "queue.")
+			if name != "" && !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
 
 func (eps Endpoints) Sort() {
@@ -785,12 +834,21 @@ func (ep *Endpoint) setup() (err error) {
 	array, _ := jmespath.Search("setup", ep.originalMap)
 	baseEndpoint.context.Map.Set("sequence_array", array)
 
-	// copy over state from endpoint with proper locking
+	// copy over state and sync values from endpoint with proper locking
 	ep.context.Lock()
 	if ep.State != nil {
 		maps.Copy(baseEndpoint.State, ep.State)
 	}
+	if ep.syncMap != nil {
+		baseEndpoint.syncMap = make(StateMap)
+		maps.Copy(baseEndpoint.syncMap, ep.syncMap)
+	}
 	ep.context.Unlock()
+
+	// render state templates before the sequence runs
+	if err := baseEndpoint.renderSequenceState(); err != nil {
+		return g.Error(err, "could not render setup state")
+	}
 
 	if err := runSequence(ep.Setup, baseEndpoint); err != nil {
 		return g.Error(err, "endpoint setup failed")
@@ -838,12 +896,21 @@ func (ep *Endpoint) teardown() (err error) {
 		}
 	}
 
-	// copy over state from endpoint with proper locking
+	// copy over state and sync values from endpoint with proper locking
 	ep.context.Lock()
 	if ep.State != nil {
 		maps.Copy(baseEndpoint.State, ep.State)
 	}
+	if ep.syncMap != nil {
+		baseEndpoint.syncMap = make(StateMap)
+		maps.Copy(baseEndpoint.syncMap, ep.syncMap)
+	}
 	ep.context.Unlock()
+
+	// render state templates before the sequence runs
+	if err := baseEndpoint.renderSequenceState(); err != nil {
+		return g.Error(err, "could not render teardown state")
+	}
 
 	if err := runSequence(ep.Teardown, baseEndpoint); err != nil {
 		return g.Error(err, "endpoint teardown failed")
@@ -857,6 +924,12 @@ func (ep *Endpoint) teardown() (err error) {
 
 	g.Debug("endpoint teardown completed successfully")
 	return nil
+}
+
+func (iter *Iteration) SetStateVal(key string, val any) {
+	iter.context.Lock()
+	iter.state[key] = val
+	iter.context.Unlock()
 }
 
 func (iter *Iteration) DetermineStateRenderOrder() (order []string, err error) {
@@ -929,11 +1002,57 @@ func (iter *Iteration) DetermineStateRenderOrder() (order []string, err error) {
 	return
 }
 
+func (iter *Iteration) renderInitial() (err error) {
+	// set iteration value
+	if iter.field != "" {
+		iter.SetStateVal(iter.field, iter.value)
+	}
+
+	// determine order render
+	order, err := iter.DetermineStateRenderOrder()
+	if err != nil {
+		return g.Error(err, "could not determine render order")
+	}
+
+	// render initial state with proper synchronization
+	for _, k := range order {
+		iter.context.Lock()
+		expr := cast.ToString(iter.state[k])
+		iter.context.Unlock()
+
+		if iter.hasBrackets(expr) {
+			val, err := iter.renderAny(iter.state[k])
+			if err != nil {
+				if strings.Contains(err.Error(), `"require" - input required`) {
+					return g.Error("state variable input was required but not provided: %s = %s", k, expr)
+				}
+				return g.Error(err, "could not render state var (%s) => %s", k, expr)
+			}
+			iter.context.Lock()
+			iter.state[k] = val
+			iter.context.Unlock()
+		}
+	}
+
+	return nil
+}
+
+// Consume controls how an endpoint that iterates over a queue consumes it.
+type Consume string
+
+const (
+	// ConsumeImmediate tails the queue live as the producer appends (fail-fast).
+	ConsumeImmediate Consume = "immediate"
+	// ConsumeDeferred waits for the producer to finish, then reads from the start (default).
+	ConsumeDeferred Consume = "deferred"
+)
+
 // Iterate is for configuring looping values for requests
 type Iterate struct {
-	Over        any    `yaml:"over" json:"over,omitempty"` // expression
-	Into        string `yaml:"into" json:"into,omitempty"` // state variable
-	Concurrency int    `yaml:"concurrency" json:"concurrency,omitempty"`
+	Over        any         `yaml:"over" json:"over,omitempty"` // expression
+	Into        string      `yaml:"into" json:"into,omitempty"` // state variable
+	Consume     Consume     `yaml:"consume" json:"consume,omitempty"` // for queues: deferred (default) or immediate
+	Concurrency int         `yaml:"concurrency" json:"concurrency,omitempty"`
 	iterations  chan *Iteration
 }
 

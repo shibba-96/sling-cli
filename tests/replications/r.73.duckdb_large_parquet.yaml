@@ -20,7 +20,7 @@ hooks:
   start:
     # Generate test Parquet file with very large strings (>65,330 chars)
     - type: command
-      command: python3 tests/scripts/generate_large_parquet.py
+      command: uv run tests/scripts/generate_large_parquet.py
 
     # Copy the generated file to S3
     - type: copy

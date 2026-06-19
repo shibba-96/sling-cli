@@ -1,0 +1,80 @@
+# Column DDL constraints test: Oracle target
+# Verifies not_null, primary_key, unique_index, index.
+# Oracle column comments are not emitted by Sling, so description is not inspected.
+# Source columns are varchar(255) -> Oracle VARCHAR2(255) so they remain indexable
+# (TEXT -> CLOB would fail with ORA-02327).
+env:
+  SOURCE: postgres
+  TARGET: oracle
+  SCHEMA: ORACLE
+
+steps:
+  - connection: '{env.TARGET}'
+    query: |
+      begin
+        execute immediate 'drop table {env.SCHEMA}.cddl_dst';
+      exception when others then if sqlcode != -942 then raise; end if;
+      end;
+
+  - type: replication
+    id: repl
+    replication:
+      source: '{env.SOURCE}'
+      target: '{env.TARGET}'
+      defaults:
+        mode: full-refresh
+      streams:
+        public.cddl_src:
+          object: '{env.SCHEMA}.cddl_dst'
+          columns:
+            id: bigint not_null primary_key
+            email: string(255) not_null unique_index
+            org_id: string(255) not_null
+            region: string(255) index
+            notes: string(255) description('user notes')
+
+  # nullability: id/email/org_id = N (not null)
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from all_tab_columns
+      where owner = '{env.SCHEMA}' and table_name = 'CDDL_DST'
+        and nullable = 'N' and column_name in ('ID','EMAIL','ORG_ID')
+    into: notnull_cnt
+  - type: check
+    check: int_parse(store.notnull_cnt[0].cnt) == 3
+    message: 'expected 3 NOT NULL columns, got {store.notnull_cnt[0].cnt}'
+
+  # primary key
+  - connection: '{env.TARGET}'
+    query: |
+      select count(*) cnt from all_constraints
+      where owner = '{env.SCHEMA}' and table_name = 'CDDL_DST' and constraint_type = 'P'
+    into: pk_cnt
+  - type: check
+    check: int_parse(store.pk_cnt[0].cnt) == 1
+    message: 'expected 1 primary key, got {store.pk_cnt[0].cnt}'
+
+  # unique index on email
+  - connection: '{env.TARGET}'
+    query: |
+      select uniqueness from all_indexes
+      where table_owner = '{env.SCHEMA}' and table_name = 'CDDL_DST'
+        and index_name = 'idx_cddl_dst_email'
+    into: uniq_idx
+  - type: check
+    check: store.uniq_idx[0].uniqueness == "UNIQUE"
+    message: 'expected unique index on email, got {store.uniq_idx[0].uniqueness}'
+
+  # plain index on region
+  - connection: '{env.TARGET}'
+    query: |
+      select uniqueness from all_indexes
+      where table_owner = '{env.SCHEMA}' and table_name = 'CDDL_DST'
+        and index_name = 'idx_cddl_dst_region'
+    into: plain_idx
+  - type: check
+    check: store.plain_idx[0].uniqueness == "NONUNIQUE"
+    message: 'expected non-unique index on region, got {store.plain_idx[0].uniqueness}'
+
+  - type: log
+    message: 'SUCCESS: oracle column DDL verified'

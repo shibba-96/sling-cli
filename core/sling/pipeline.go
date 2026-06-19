@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flarco/g"
@@ -29,6 +30,7 @@ type Pipeline struct {
 	state         *PipelineState
 	steps         Hooks
 	execID        string
+	outputMux     sync.Mutex
 }
 
 func LoadPipelineConfigFromFile(cfgPath string) (pipeline *Pipeline, err error) {
@@ -233,9 +235,11 @@ func (pl *Pipeline) Execute() (err error) {
 			default:
 			}
 
-			// Add to output buffer
+			// Add to output buffer. Use a dedicated mutex (not Context.Mux)
+			pse.Pipeline.outputMux.Lock()
 			pse.Output.WriteString(ll.Line() + "\n")
 			pse.Pipeline.Output.WriteString(ll.Line() + "\n")
+			pse.Pipeline.outputMux.Unlock()
 		}
 
 		// Execute the step
@@ -392,6 +396,13 @@ retry:
 		pse.Status = ExecStatusError
 		return g.Error(err, "error executing step: %s", pse.Step.ID())
 	}
+
+	// mark the step as warning so the status bubbles up to the overall pipeline
+	if onFail == OnFailWarn || pse.Step.Status().IsWarning() {
+		pse.Status = ExecStatusWarning
+		return nil
+	}
+
 	pse.Status = ExecStatusSuccess
 
 	return nil
@@ -432,6 +443,7 @@ func (pl *Pipeline) RuntimeState() (_ *PipelineState, err error) {
 			Store: map[string]any{},
 			Env:   pl.Env,
 			Runs:  map[string]*RunState{},
+			mu:    &sync.RWMutex{},
 		}
 	}
 
@@ -458,13 +470,35 @@ type PipelineState struct {
 	Timestamp DateTimeState             `json:"timestamp,omitempty"`
 	Runs      map[string]*RunState      `json:"runs,omitempty"`
 	Run       *RunState                 `json:"run,omitempty"`
+
+	mu *sync.RWMutex `json:"-" yaml:"-"`
 }
+
+func (ps *PipelineState) lock() {
+	if ps.mu == nil {
+		ps.mu = &sync.RWMutex{}
+	}
+	ps.mu.Lock()
+}
+
+func (ps *PipelineState) unlock() { ps.mu.Unlock() }
+
+func (ps *PipelineState) rlock() {
+	if ps.mu == nil {
+		ps.mu = &sync.RWMutex{}
+	}
+	ps.mu.RLock()
+}
+
+func (ps *PipelineState) runlock() { ps.mu.RUnlock() }
 
 func (ps *PipelineState) GetStore() map[string]any {
 	return ps.Store
 }
 
 func (ps *PipelineState) SetStoreData(key string, value any, del bool) {
+	ps.lock()
+	defer ps.unlock()
 	if del {
 		delete(ps.Store, key)
 	} else {
@@ -473,14 +507,23 @@ func (ps *PipelineState) SetStoreData(key string, value any, del bool) {
 }
 
 func (ps *PipelineState) SetStateData(id string, data map[string]any) {
+	ps.lock()
+	defer ps.unlock()
 	ps.State[id] = data
 }
 
 func (ps *PipelineState) SetStateKeyValue(id, key string, value any) {
+	ps.lock()
+	defer ps.unlock()
+	if ps.State[id] == nil {
+		ps.State[id] = map[string]any{}
+	}
 	ps.State[id][key] = value
 }
 
 func (ps *PipelineState) Marshall() string {
+	ps.rlock()
+	defer ps.runlock()
 	return g.Marshal(ps)
 }
 

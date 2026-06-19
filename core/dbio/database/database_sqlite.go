@@ -68,9 +68,16 @@ func (conn *SQLiteConn) GenerateDDL(table Table, data iop.Dataset, temporary boo
 		return ddl, g.Error(err)
 	}
 
-	for _, index := range table.Indexes(data.Columns) {
-		indexDDL := strings.ReplaceAll(index.CreateDDL(), table.FDQN(), table.NameQ()) // doesn't like FDQN
-		ddl = ddl + ";\n" + indexDDL
+	// indexes only on the final table (see note in postgres GenerateDDL)
+	if !temporary {
+		for _, index := range table.Indexes(data.Columns) {
+			idxDDL := index.CreateDDL()
+			if idxDDL == "" {
+				continue
+			}
+			indexDDL := strings.ReplaceAll(idxDDL, table.FDQN(), table.NameQ()) // doesn't like FDQN
+			ddl = ddl + ";\n" + indexDDL
+		}
 	}
 
 	return ddl, nil

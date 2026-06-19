@@ -1,0 +1,60 @@
+# Verifies group `concurrency`: a group looping over N values with concurrency C
+# runs iterations in parallel. Each iteration sleeps, so the wall-clock time
+# proves parallelism (parallel ~= sleep duration, sequential ~= N * sleep).
+# Also verifies {loop.value} still resolves correctly under concurrency.
+steps:
+  # ---- concurrent group: 4 iterations x ~2s sleep, concurrency 4 ----
+  - type: store
+    key: t_start_concurrent
+    value: "{now()}"
+
+  - type: group
+    id: concurrent_group
+    concurrency: 4
+    loop: [1, 2, 3, 4]
+    steps:
+      - type: command
+        command: [sleep, "2"]
+      - type: log
+        message: "concurrent iteration value={loop.value} index={loop.index}"
+
+  - type: store
+    key: t_end_concurrent
+    value: "{now()}"
+
+  # with concurrency 4, total wall-clock should be ~2s (one sleep), well under
+  # the ~8s a sequential run would take. Assert < 6s to allow generous margin.
+  - type: check
+    check: date_diff(store.t_end_concurrent, store.t_start_concurrent, "s") < 6
+    message: 'concurrent group took too long ({date_diff(store.t_end_concurrent, store.t_start_concurrent, "s")}s), parallelism not working'
+
+  - type: check
+    check: state.concurrent_group.status == "success"
+    message: 'expected concurrent_group "success", got "{state.concurrent_group.status}"'
+
+  # ---- sequential group (concurrency 1): same loop, sleeps ~1s x 3 ----
+  - type: store
+    key: t_start_sequential
+    value: "{now()}"
+
+  - type: group
+    id: sequential_group
+    concurrency: 1
+    loop: [1, 2, 3]
+    steps:
+      - type: command
+        command: [sleep, "1"]
+      - type: log
+        message: "sequential iteration value={loop.value}"
+
+  - type: store
+    key: t_end_sequential
+    value: "{now()}"
+
+  # sequential 3 x ~1s => should take at least ~3s (proves it did NOT parallelize)
+  - type: check
+    check: date_diff(store.t_end_sequential, store.t_start_sequential, "s") >= 3
+    message: 'sequential group finished too fast ({date_diff(store.t_end_sequential, store.t_start_sequential, "s")}s), should run serially'
+
+  - type: log
+    message: "group concurrency checks passed"

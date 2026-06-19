@@ -1,0 +1,1181 @@
+{
+  "connections": {
+    "postgres": {
+      "name": "PostgreSQL",
+      "description": "PostgreSQL database connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Hostname or IP address of the PostgreSQL server",
+          "required": true,
+          "examples": ["localhost", "192.168.1.100", "postgres.example.com"]
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 5432,
+          "examples": ["5432"]
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true,
+          "examples": ["postgres", "myuser"]
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true,
+          "examples": ["mydb", "production"]
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema name",
+          "examples": ["public", "analytics"]
+        },
+        "sslmode": {
+          "type": "string",
+          "description": "SSL connection mode",
+          "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"],
+          "default": "disable"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role to assume after connection"
+        },
+        "ssh_private_key": {
+          "type": "string",
+          "description": "Path to SSH private key file"
+        },
+        "ssh_passphrase": {
+          "type": "string",
+          "description": "SSH key passphrase"
+        }
+      }
+    },
+    "mysql": {
+      "name": "MySQL",
+      "description": "MySQL database connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Hostname or IP address of the MySQL server",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 3306
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true
+        },
+        "charset": {
+          "type": "string",
+          "description": "Character set to use",
+          "default": "utf8mb4"
+        },
+        "tls": {
+          "type": "boolean",
+          "description": "Enable TLS encryption",
+          "default": false
+        }
+      }
+    },
+    "mariadb": {
+      "name": "MariaDB",
+      "description": "MariaDB database connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Hostname or IP address of the MariaDB server",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 3306
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true
+        },
+        "charset": {
+          "type": "string",
+          "description": "Character set to use",
+          "default": "utf8mb4"
+        },
+        "tls": {
+          "type": "boolean",
+          "description": "Enable TLS encryption",
+          "default": false
+        }
+      }
+    },
+    "duckdb": {
+      "name": "DuckDB",
+      "description": "DuckDB embedded database connection",
+      "category": "database",
+      "properties": {
+        "instance": {
+          "type": "string",
+          "description": "Local file path of the database file",
+          "required": true,
+          "examples": ["/path/to/database.db", "./data/mydatabase.duckdb"]
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema name",
+          "examples": ["main", "staging"]
+        },
+        "duckdb_version": {
+          "type": "string",
+          "description": "DuckDB CLI version to use",
+          "examples": ["0.9.0", "0.8.1"]
+        },
+        "read_only": {
+          "type": "boolean",
+          "description": "Open connection in readonly mode",
+          "default": false
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "Use interactive mode instead of reopening connection",
+          "default": false
+        },
+        "copy_method": {
+          "type": "string",
+          "description": "Method for copying data into DuckDB",
+          "enum": ["csv_files", "csv_http", "arrow_http", "named_pipes"],
+          "default": "csv_http"
+        }
+      }
+    },
+    "motherduck": {
+      "name": "MotherDuck",
+      "description": "MotherDuck cloud DuckDB service",
+      "category": "database",
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "MotherDuck authentication token",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name"
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema name"
+        }
+      }
+    },
+    "sqlite": {
+      "name": "SQLite",
+      "description": "SQLite embedded database connection",
+      "category": "database",
+      "properties": {
+        "instance": {
+          "type": "string",
+          "description": "Local file path of the database file",
+          "required": true,
+          "examples": ["/path/to/database.db", "./data/sqlite.db"]
+        },
+        "busy_timeout": {
+          "type": "number",
+          "description": "Busy timeout in milliseconds",
+          "default": 5000
+        }
+      }
+    },
+    "bigquery": {
+      "name": "Google BigQuery",
+      "description": "Google BigQuery data warehouse connection",
+      "category": "database",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "GCP project ID",
+          "required": true,
+          "examples": ["my-gcp-project", "analytics-prod"]
+        },
+        "dataset": {
+          "type": "string",
+          "description": "Default dataset name",
+          "required": true,
+          "examples": ["analytics", "staging"]
+        },
+        "keyfile": {
+          "type": "string",
+          "description": "Path to Service Account JSON file",
+          "examples": ["/path/to/service-account.json"]
+        },
+        "method": {
+          "type": "string",
+          "description": "Authentication method",
+          "enum": ["service-account"],
+          "default": "service-account"
+        },
+        "location": {
+          "type": "string",
+          "description": "Location of the account",
+          "default": "US",
+          "examples": ["US", "EU", "us-central1"]
+        },
+        "gc_bucket": {
+          "type": "string",
+          "description": "Google Cloud Storage bucket for loading (recommended)",
+          "examples": ["my-gcs-bucket"]
+        },
+        "extra_scopes": {
+          "type": "array",
+          "description": "Additional authorization scopes"
+        }
+      }
+    },
+    "snowflake": {
+      "name": "Snowflake",
+      "description": "Snowflake cloud data warehouse connection",
+      "category": "database",
+      "properties": {
+        "account": {
+          "type": "string",
+          "description": "Snowflake account identifier",
+          "required": true,
+          "examples": ["xy12345.us-east-1", "myorg-myaccount"]
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "examples": ["ANALYTICS", "PRODUCTION"]
+        },
+        "schema": {
+          "type": "string",
+          "description": "Schema name",
+          "examples": ["PUBLIC", "STAGING"]
+        },
+        "warehouse": {
+          "type": "string",
+          "description": "Warehouse name",
+          "examples": ["COMPUTE_WH", "ANALYTICS_WH"]
+        },
+        "role": {
+          "type": "string",
+          "description": "Role to assume",
+          "examples": ["ACCOUNTADMIN", "SYSADMIN", "ANALYST"]
+        }
+      }
+    },
+    "redshift": {
+      "name": "Amazon Redshift",
+      "description": "Amazon Redshift data warehouse connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Redshift cluster endpoint",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 5439
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema name",
+          "default": "public"
+        },
+        "sslmode": {
+          "type": "string",
+          "description": "SSL connection mode",
+          "enum": ["disable", "allow", "prefer", "require"],
+          "default": "prefer"
+        }
+      }
+    },
+    "clickhouse": {
+      "name": "ClickHouse",
+      "description": "ClickHouse OLAP database connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "ClickHouse server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 9000
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "default": "default"
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication"
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "default": "default"
+        },
+        "secure": {
+          "type": "boolean",
+          "description": "Use secure connection",
+          "default": false
+        }
+      }
+    },
+    "mongodb": {
+      "name": "MongoDB",
+      "description": "MongoDB NoSQL database connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "MongoDB server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 27017
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication"
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication"
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true
+        },
+        "auth_source": {
+          "type": "string",
+          "description": "Authentication database",
+          "default": "admin"
+        },
+        "ssl": {
+          "type": "boolean",
+          "description": "Use SSL connection",
+          "default": false
+        }
+      }
+    },
+    "oracle": {
+      "name": "Oracle",
+      "description": "Oracle database connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Oracle server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 1521
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name or SID",
+          "required": true
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema name"
+        }
+      }
+    },
+    "sqlserver": {
+      "name": "SQL Server",
+      "description": "Microsoft SQL Server database connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "SQL Server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 1433
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema name",
+          "default": "dbo"
+        },
+        "encrypt": {
+          "type": "boolean",
+          "description": "Use encrypted connection",
+          "default": true
+        },
+        "trust_server_certificate": {
+          "type": "boolean",
+          "description": "Trust server certificate",
+          "default": false
+        }
+      }
+    },
+    "s3": {
+      "name": "Amazon S3",
+      "description": "Amazon S3 cloud storage connection",
+      "category": "storage",
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "description": "S3 bucket name",
+          "required": true,
+          "examples": ["my-data-bucket", "analytics-storage"]
+        },
+        "region": {
+          "type": "string",
+          "description": "AWS region",
+          "examples": ["us-east-1", "us-west-2", "eu-west-1"]
+        },
+        "access_key_id": {
+          "type": "string",
+          "description": "AWS access key ID"
+        },
+        "secret_access_key": {
+          "type": "string",
+          "description": "AWS secret access key"
+        },
+        "session_token": {
+          "type": "string",
+          "description": "AWS session token for temporary credentials"
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Custom S3 endpoint URL"
+        },
+        "force_path_style": {
+          "type": "boolean",
+          "description": "Force path-style requests",
+          "default": false
+        }
+      }
+    },
+    "gs": {
+      "name": "Google Cloud Storage",
+      "description": "Google Cloud Storage connection",
+      "category": "storage",
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "description": "GCS bucket name",
+          "required": true
+        },
+        "keyfile": {
+          "type": "string",
+          "description": "Path to Service Account JSON file"
+        },
+        "project": {
+          "type": "string",
+          "description": "GCP project ID"
+        }
+      }
+    },
+    "azure": {
+      "name": "Azure Storage",
+      "description": "Azure Blob Storage connection",
+      "category": "storage",
+      "properties": {
+        "account": {
+          "type": "string",
+          "description": "Azure storage account name",
+          "required": true
+        },
+        "container": {
+          "type": "string",
+          "description": "Azure container name",
+          "required": true
+        },
+        "sas_token": {
+          "type": "string",
+          "description": "Shared Access Signature token"
+        },
+        "account_key": {
+          "type": "string",
+          "description": "Azure storage account key"
+        }
+      }
+    },
+    "ftp": {
+      "name": "FTP",
+      "description": "FTP file transfer connection",
+      "category": "storage",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "FTP server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 21
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "passive": {
+          "type": "boolean",
+          "description": "Use passive mode",
+          "default": true
+        }
+      }
+    },
+    "sftp": {
+      "name": "SFTP",
+      "description": "SFTP secure file transfer connection",
+      "category": "storage",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "SFTP server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 22
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication"
+        },
+        "private_key": {
+          "type": "string",
+          "description": "Path to private key file"
+        },
+        "passphrase": {
+          "type": "string",
+          "description": "Private key passphrase"
+        }
+      }
+    },
+    "athena": {
+      "name": "AWS Athena",
+      "description": "AWS Athena serverless query service",
+      "category": "datalake",
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "AWS region",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Athena database name",
+          "required": true
+        },
+        "s3_staging_dir": {
+          "type": "string",
+          "description": "S3 location for query results",
+          "required": true
+        },
+        "access_key_id": {
+          "type": "string",
+          "description": "AWS access key ID"
+        },
+        "secret_access_key": {
+          "type": "string",
+          "description": "AWS secret access key"
+        },
+        "work_group": {
+          "type": "string",
+          "description": "Athena workgroup name"
+        }
+      }
+    },
+    "r2": {
+      "name": "Cloudflare R2",
+      "description": "Cloudflare R2 object storage",
+      "category": "storage",
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "description": "R2 bucket name",
+          "required": true
+        },
+        "access_key_id": {
+          "type": "string",
+          "description": "R2 access key ID"
+        },
+        "secret_access_key": {
+          "type": "string",
+          "description": "R2 secret access key"
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "R2 endpoint URL"
+        },
+        "region": {
+          "type": "string",
+          "description": "R2 region"
+        }
+      }
+    },
+    "gdrive": {
+      "name": "Google Drive",
+      "description": "Google Drive storage connection",
+      "category": "storage",
+      "properties": {
+        "keyfile": {
+          "type": "string",
+          "description": "Path to Service Account JSON file"
+        },
+        "folder_id": {
+          "type": "string",
+          "description": "Google Drive folder ID"
+        }
+      }
+    },
+    "local": {
+      "name": "Local File System",
+      "description": "Local file system storage",
+      "category": "storage",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Local file system path",
+          "examples": ["/data", "./files", "/home/user/data"]
+        }
+      }
+    },
+    "hdfs": {
+      "name": "Hadoop HDFS",
+      "description": "Hadoop Distributed File System",
+      "category": "storage",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "HDFS URL",
+          "required": true
+        },
+        "user": {
+          "type": "string",
+          "description": "HDFS user"
+        }
+      }
+    },
+    "http": {
+      "name": "HTTP/HTTPS",
+      "description": "HTTP/HTTPS connection for web APIs",
+      "category": "storage",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "HTTP/HTTPS URL",
+          "required": true
+        },
+        "headers": {
+          "type": "string",
+          "description": "HTTP headers"
+        },
+        "auth": {
+          "type": "string",
+          "description": "Authentication method"
+        }
+      }
+    },
+    "d1": {
+      "name": "Cloudflare D1",
+      "description": "Cloudflare D1 serverless SQL database",
+      "category": "database",
+      "properties": {
+        "account_id": {
+          "type": "string",
+          "description": "Cloudflare account ID",
+          "required": true
+        },
+        "database_id": {
+          "type": "string",
+          "description": "D1 database ID",
+          "required": true
+        },
+        "token": {
+          "type": "string",
+          "description": "Cloudflare API token",
+          "required": true
+        }
+      }
+    },
+    "azuretable": {
+      "name": "Azure Table Storage",
+      "description": "Azure Table Storage NoSQL service",
+      "category": "database",
+      "properties": {
+        "account": {
+          "type": "string",
+          "description": "Azure storage account name",
+          "required": true
+        },
+        "sas_token": {
+          "type": "string",
+          "description": "Shared Access Signature token"
+        },
+        "account_key": {
+          "type": "string",
+          "description": "Azure storage account key"
+        }
+      }
+    },
+    "azuresql": {
+      "name": "Azure SQL Database",
+      "description": "Azure SQL Database connection",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Azure SQL server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 1433
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema name",
+          "default": "dbo"
+        }
+      }
+    },
+    "azuredwh": {
+      "name": "Azure Synapse Analytics",
+      "description": "Azure Synapse Analytics (SQL Data Warehouse)",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Synapse server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 1433
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema name",
+          "default": "dbo"
+        }
+      }
+    },
+    "databricks": {
+      "name": "Databricks",
+      "description": "Databricks lakehouse platform",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Databricks hostname",
+          "required": true
+        },
+        "token": {
+          "type": "string",
+          "description": "Personal access token",
+          "required": true
+        },
+        "http_path": {
+          "type": "string",
+          "description": "SQL warehouse HTTP path",
+          "required": true
+        },
+        "catalog": {
+          "type": "string",
+          "description": "Unity catalog name"
+        },
+        "schema": {
+          "type": "string",
+          "description": "Schema name"
+        }
+      }
+    },
+    "trino": {
+      "name": "Trino",
+      "description": "Trino distributed SQL query engine",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Trino coordinator hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 8080
+        },
+        "user": {
+          "type": "string",
+          "description": "Username",
+          "required": true
+        },
+        "catalog": {
+          "type": "string",
+          "description": "Default catalog",
+          "required": true
+        },
+        "schema": {
+          "type": "string",
+          "description": "Default schema"
+        }
+      }
+    },
+    "elasticsearch": {
+      "name": "Elasticsearch",
+      "description": "Elasticsearch search and analytics engine",
+      "category": "database",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Elasticsearch URL",
+          "required": true
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication"
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication"
+        },
+        "index": {
+          "type": "string",
+          "description": "Default index name"
+        }
+      }
+    },
+    "prometheus": {
+      "name": "Prometheus",
+      "description": "Prometheus monitoring system",
+      "category": "database",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Prometheus URL",
+          "required": true
+        },
+        "user": {
+          "type": "string",
+          "description": "Username for authentication"
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for authentication"
+        }
+      }
+    },
+    "proton": {
+      "name": "Timeplus Proton",
+      "description": "Timeplus Proton streaming analytics",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Proton server hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 8463
+        },
+        "user": {
+          "type": "string",
+          "description": "Username",
+          "default": "default"
+        },
+        "password": {
+          "type": "string",
+          "description": "Password"
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "default": "default"
+        }
+      }
+    },
+    "exasol": {
+      "name": "Exasol",
+      "description": "Exasol analytics database",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Exasol hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 8563
+        },
+        "user": {
+          "type": "string",
+          "description": "Username",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password",
+          "required": true
+        },
+        "schema": {
+          "type": "string",
+          "description": "Schema name"
+        }
+      }
+    },
+    "starrocks": {
+      "name": "StarRocks",
+      "description": "StarRocks analytics database",
+      "category": "database",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "StarRocks hostname",
+          "required": true
+        },
+        "port": {
+          "type": "number",
+          "description": "Port number",
+          "default": 9030
+        },
+        "user": {
+          "type": "string",
+          "description": "Username",
+          "required": true
+        },
+        "password": {
+          "type": "string",
+          "description": "Password",
+          "required": true
+        },
+        "database": {
+          "type": "string",
+          "description": "Database name",
+          "required": true
+        }
+      }
+    },
+    "bigtable": {
+      "name": "Google Cloud Bigtable",
+      "description": "Google Cloud Bigtable NoSQL database",
+      "category": "database",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "GCP project ID",
+          "required": true
+        },
+        "instance": {
+          "type": "string",
+          "description": "Bigtable instance name",
+          "required": true
+        },
+        "keyfile": {
+          "type": "string",
+          "description": "Path to Service Account JSON file"
+        }
+      }
+    },
+    "ducklake": {
+      "name": "DuckLake",
+      "description": "DuckLake data lakehouse",
+      "category": "datalake",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "DuckLake path",
+          "required": true
+        },
+        "format": {
+          "type": "string",
+          "description": "Data format"
+        }
+      }
+    },
+    "iceberg": {
+      "name": "Apache Iceberg",
+      "description": "Apache Iceberg table format",
+      "category": "datalake",
+      "properties": {
+        "catalog_uri": {
+          "type": "string",
+          "description": "Iceberg catalog URI",
+          "required": true
+        },
+        "warehouse": {
+          "type": "string",
+          "description": "Warehouse path"
+        }
+      }
+    },
+    "api": {
+      "name": "API Connection",
+      "description": "REST API connection",
+      "category": "storage",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "API base URL",
+          "required": true
+        },
+        "headers": {
+          "type": "string",
+          "description": "HTTP headers"
+        },
+        "auth": {
+          "type": "string",
+          "description": "Authentication method"
+        },
+        "token": {
+          "type": "string",
+          "description": "API token or key"
+        }
+      }
+    }
+  }
+}

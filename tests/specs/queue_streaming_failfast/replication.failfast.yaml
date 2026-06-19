@@ -1,0 +1,21 @@
+# Fail-fast: two independent streaming-queue groups. The server fails one item
+# for group 1 only (grp=1). Group 1 (search + details_a/b) must fail/terminate
+# fast, while the independent group 2 (search2 + details2_a/b) finishes OK.
+source: QUEUE_STREAM_TEST
+target: local
+
+env:
+  SLING_THREADS: "6"
+  OUT_DIR: ${OUT_DIR}
+
+defaults:
+  mode: full-refresh
+  object: "file://{env.OUT_DIR}/{stream_name}.json"
+
+streams:
+  search: {}
+  details_a: {}
+  details_b: {}
+  search2: {}
+  details2_a: {}
+  details2_b: {}

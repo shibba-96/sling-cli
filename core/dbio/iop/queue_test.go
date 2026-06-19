@@ -1,6 +1,7 @@
 package iop
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -695,4 +696,132 @@ func TestChunkFunction(t *testing.T) {
 
 		assert.Equal(t, 0, len(chunks), "Should have no chunks for empty queue")
 	})
+}
+
+// drainReader reads all items from a tailing reader until the producer is done.
+func drainReader(t *testing.T, qr *QueueReader) []any {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	items := []any{}
+	for {
+		item, hasMore, err := qr.Next(ctx)
+		assert.NoError(t, err)
+		if !hasMore {
+			break
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// TestQueueReader_TailWhileWriting: reader blocks at EOF, picks up later appends,
+// stops on the done-sentinel.
+func TestQueueReader_TailWhileWriting(t *testing.T) {
+	q, err := NewQueue("test-tail")
+	assert.NoError(t, err)
+	defer q.Close()
+
+	reader, err := q.NewReader()
+	assert.NoError(t, err)
+	defer reader.Close()
+
+	got := make(chan []any, 1)
+	go func() { got <- drainReader(t, reader) }()
+
+	// produce slowly, after the reader is already tailing (blocked at EOF)
+	for i := 1; i <= 5; i++ {
+		time.Sleep(20 * time.Millisecond)
+		assert.NoError(t, q.Append(map[string]any{"id": i}))
+	}
+	assert.NoError(t, q.Flush())
+	assert.NoError(t, q.MarkDone())
+
+	select {
+	case items := <-got:
+		assert.Len(t, items, 5, "reader should have tailed all 5 records")
+	case <-time.After(10 * time.Second):
+		t.Fatal("reader did not finish after producer marked done")
+	}
+}
+
+// TestQueueReader_Broadcast: each independent reader sees every record (broadcast,
+// not competing-consumers).
+func TestQueueReader_Broadcast(t *testing.T) {
+	q, err := NewQueue("test-broadcast")
+	assert.NoError(t, err)
+	defer q.Close()
+
+	const n = 50
+	const consumers = 10
+
+	readers := make([]*QueueReader, consumers)
+	results := make([][]any, consumers)
+	for i := range readers {
+		readers[i], err = q.NewReader()
+		assert.NoError(t, err)
+		defer readers[i].Close()
+	}
+
+	done := make(chan int, consumers)
+	for i := range readers {
+		go func(idx int) {
+			results[idx] = drainReader(t, readers[idx])
+			done <- idx
+		}(i)
+	}
+
+	for i := 1; i <= n; i++ {
+		assert.NoError(t, q.Append(map[string]any{"id": i}))
+	}
+	assert.NoError(t, q.Flush())
+	assert.NoError(t, q.MarkDone())
+
+	for range readers {
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("a reader did not finish")
+		}
+	}
+
+	for i := range results {
+		assert.Lenf(t, results[i], n, "reader %d should see all %d records", i, n)
+	}
+}
+
+// TestQueueReader_ContextCancel: a blocked reader unblocks on context cancel
+// (fail-fast), even if the producer never marks done.
+func TestQueueReader_ContextCancel(t *testing.T) {
+	q, err := NewQueue("test-cancel")
+	assert.NoError(t, err)
+	defer q.Close()
+
+	reader, err := q.NewReader()
+	assert.NoError(t, err)
+	defer reader.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	finished := make(chan struct{})
+	go func() {
+		for {
+			_, hasMore, err := reader.Next(ctx)
+			assert.NoError(t, err)
+			if !hasMore {
+				close(finished)
+				return
+			}
+		}
+	}()
+
+	// reader is now blocked at EOF (no records, not done); cancel should unblock it
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reader did not unblock on context cancel")
+	}
 }

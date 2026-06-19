@@ -1,0 +1,70 @@
+# Verifies that on_failure: warn sets the step status to "warning" (not success),
+# and that the warning propagates up through groups and nested groups so it can
+# bubble up to the overall execution and be reported to the platform as warning.
+steps:
+  # 1. a direct step that fails with on_failure: warn => status becomes "warning"
+  - type: check
+    id: direct_warn
+    check: 1 == 2
+    on_failure: warn
+
+  - type: check
+    check: state.direct_warn.status == "warning"
+    message: 'expected direct_warn status "warning", got "{state.direct_warn.status}"'
+
+  # 2. a group containing a warned sub-step => the group becomes "warning"
+  - type: group
+    id: warn_group
+    steps:
+      - type: log
+        message: "group substep 1 ok"
+      - type: check
+        id: group_inner_warn
+        check: 1 == 2
+        on_failure: warn
+      - type: log
+        message: "group substep 3 still ran"
+
+  - type: check
+    check: state.group_inner_warn.status == "warning"
+    message: 'expected group_inner_warn "warning", got "{state.group_inner_warn.status}"'
+
+  - type: check
+    check: state.warn_group.status == "warning"
+    message: 'expected warn_group "warning", got "{state.warn_group.status}"'
+
+  # 3. nested groups => warning propagates from the deepest step to every parent
+  - type: group
+    id: outer_group
+    steps:
+      - type: log
+        message: "outer ok"
+      - type: group
+        id: inner_group
+        steps:
+          - type: check
+            id: deep_warn
+            check: 1 == 2
+            on_failure: warn
+
+  - type: check
+    check: state.inner_group.status == "warning"
+    message: 'expected inner_group "warning", got "{state.inner_group.status}"'
+
+  - type: check
+    check: state.outer_group.status == "warning"
+    message: 'expected outer_group "warning", got "{state.outer_group.status}"'
+
+  # 4. a group whose sub-steps all succeed stays "success" (no false warnings)
+  - type: group
+    id: clean_group
+    steps:
+      - type: log
+        message: "clean substep"
+
+  - type: check
+    check: state.clean_group.status == "success"
+    message: 'expected clean_group "success", got "{state.clean_group.status}"'
+
+  - type: log
+    message: "all on_failure:warn status checks passed"

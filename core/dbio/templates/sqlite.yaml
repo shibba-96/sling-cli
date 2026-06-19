@@ -4,6 +4,7 @@ core:
   drop_index: drop index if exists {index}
   create_table: create table if not exists {table} ({col_types})
   create_unique_index: create unique index if not exists {index} on {table} ({cols})
+  create_index_full: create {unique} index if not exists {index} on {table} ({cols}) {where}
   replace: replace into {table} ({names}) values({values})
   truncate_table: delete from {table}
   insert_option: ""
@@ -13,6 +14,9 @@ core:
   merge_insert: |
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM {src_table} src
+    WHERE ({src_pk_fields}) NOT IN (
+      SELECT {tgt_pk_fields} FROM {tgt_table}
+    )
 
   merge_update: |
     UPDATE {tgt_table} AS tgt

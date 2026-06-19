@@ -51,6 +51,9 @@ core:
   merge_insert: |
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM {src_table} src
+    WHERE NOT EXISTS (
+      SELECT 1 FROM {tgt_table} tgt WHERE {src_tgt_pk_equal}
+    )
 
   merge_update: |
     UPDATE tgt
@@ -528,6 +531,8 @@ variable:
   error_filter_table_exists: already
   max_string_type: nvarchar(max)
   max_string_length: 4000
+  max_binary_type: varbinary(max)
+  max_binary_length: 8000
   max_column_length: 128
 
 native_type_map:
@@ -563,7 +568,7 @@ native_type_map:
 
 general_type_map:
   bigint: bigint
-  binary: varbinary
+  binary: "varbinary()"
   bool: bit
   date: date
   datetime: datetime2

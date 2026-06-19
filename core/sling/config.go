@@ -747,6 +747,11 @@ func (cfg *Config) Prepare() (err error) {
 		}
 	}
 
+	// validate column modifier DSL
+	if _, err = cfg.ColumnsPrepared(); err != nil {
+		return err
+	}
+
 	// validate conn data keys
 	for key := range cfg.SrcConn.Data {
 		if strings.Contains(key, ":") {
@@ -814,6 +819,17 @@ func (cfg *Config) Prepare() (err error) {
 			}
 			if cfg.ReplicationStream != nil {
 				cfg.ReplicationStream.SQL = cfg.Source.Stream
+			}
+		} else if sTable.Name != "" && sTable.Schema == "" {
+			if dbConn, err := cfg.SrcConn.AsDatabase(); err == nil {
+				if schema, _ := dbConn.CurrentSchema(); schema != "" {
+					// normalize the injected schema's casing for the dialect
+					if schemaTable, perr := database.ParseTableName(schema+"."+sTable.Name, cfg.SrcConn.Type); perr == nil && schemaTable.Name != "" {
+						schema = schemaTable.Schema
+					}
+					sTable.Schema = schema
+					cfg.Source.Stream = sTable.FullName()
+				}
 			}
 		}
 	}
@@ -1287,6 +1303,7 @@ type Config struct {
 	StreamName        string                   `json:"stream_name,omitempty" yaml:"stream_name,omitempty"`
 	ReplicationStream *ReplicationStreamConfig `json:"replication_stream,omitempty" yaml:"replication_stream,omitempty"`
 	DependsOn         []string                 `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	QueueStreaming    bool                     `json:"queue_streaming,omitempty" yaml:"queue_streaming,omitempty"`
 
 	SrcConn  connection.Connection `json:"-" yaml:"-"`
 	TgtConn  connection.Connection `json:"-" yaml:"-"`
@@ -1326,56 +1343,60 @@ func (cfg *Config) HasIncrementalVal() bool {
 	return cfg.IncrementalValStr != "" && cfg.IncrementalValStr != "null"
 }
 
-// ColumnsPrepared returns the prepared columns
-func (cfg *Config) ColumnsPrepared() (columns iop.Columns) {
-
-	if cfg.Target.Columns != nil {
-		switch colsCasted := cfg.Target.Columns.(type) {
-		case map[string]any:
-			for colName, colType := range colsCasted {
-				col := iop.Column{
-					Name: colName,
-					Type: iop.ColumnType(cast.ToString(colType)),
-				}
-				columns = append(columns, col)
-			}
-		case map[any]any:
-			for colName, colType := range colsCasted {
-				col := iop.Column{
-					Name: cast.ToString(colName),
-					Type: iop.ColumnType(cast.ToString(colType)),
-				}
-				columns = append(columns, col)
-			}
-		case []map[string]any:
-			for _, colItem := range colsCasted {
-				col := iop.Column{}
-				g.Unmarshal(g.Marshal(colItem), &col)
-				columns = append(columns, col)
-			}
-		case []any:
-			for _, colItem := range colsCasted {
-				col := iop.Column{}
-				g.Unmarshal(g.Marshal(colItem), &col)
-				columns = append(columns, col)
-			}
-		case iop.Columns:
-			columns = colsCasted
-		default:
-			g.Warn("Config.Source.Options.Columns not handled: %T", cfg.Source.Options.Columns)
-		}
-
-		// parse constraint, length, precision, scale
-		for i := range columns {
-			columns[i].SetConstraint()
-			columns[i].SetLengthPrecisionScale()
-		}
-
-		// set as string so that StreamProcessor parses it
-		columns = iop.NewColumns(columns...)
+// ColumnsPrepared builds the prepared columns from cfg.Target.Columns and parses
+func (cfg *Config) ColumnsPrepared() (columns iop.Columns, err error) {
+	if cfg.Target.Columns == nil {
+		return nil, nil
 	}
 
-	return
+	switch colsCasted := cfg.Target.Columns.(type) {
+	case map[string]any:
+		for colName, colType := range colsCasted {
+			col := iop.Column{
+				Name: colName,
+				Type: iop.ColumnType(cast.ToString(colType)),
+			}
+			columns = append(columns, col)
+		}
+	case map[any]any:
+		for colName, colType := range colsCasted {
+			col := iop.Column{
+				Name: cast.ToString(colName),
+				Type: iop.ColumnType(cast.ToString(colType)),
+			}
+			columns = append(columns, col)
+		}
+	case []map[string]any:
+		for _, colItem := range colsCasted {
+			col := iop.Column{}
+			g.Unmarshal(g.Marshal(colItem), &col)
+			columns = append(columns, col)
+		}
+	case []any:
+		for _, colItem := range colsCasted {
+			col := iop.Column{}
+			g.Unmarshal(g.Marshal(colItem), &col)
+			columns = append(columns, col)
+		}
+	case iop.Columns:
+		columns = colsCasted
+	default:
+		g.Warn("Config.Target.Columns not handled: %T", cfg.Target.Columns)
+	}
+
+	// parse constraint, modifiers, length, precision, scale
+	for i := range columns {
+		columns[i].SetConstraint()
+		if e := columns[i].ParseModifiers(); e != nil && err == nil {
+			err = g.Error(e, "invalid column modifier")
+		}
+		columns[i].SetLengthPrecisionScale()
+	}
+
+	// set as string so that StreamProcessor parses it
+	columns = iop.NewColumns(columns...)
+
+	return columns, err
 }
 
 // TransformsPrepared returns the transforms columns
@@ -1446,6 +1467,29 @@ func (cfg *Config) TgtConnMD5() string {
 
 func (cfg *Config) StreamID() string {
 	return g.MD5(cfg.Source.Conn, cfg.Target.Conn, cfg.StreamName, cfg.Target.Object)
+}
+
+// CDCSlotLevel returns the effective slot level after applying defaults
+func (cfg *Config) CDCSlotLevel() database.CDCSlotLevel {
+	supported := cfg.SrcConn.Type.IsPostgresLike() || cfg.SrcConn.Type.IsMySQLLike()
+
+	var level database.CDCSlotLevel
+	if cfg.ReplicationStream != nil && cfg.ReplicationStream.CDCOptions != nil {
+		level = g.PtrVal(cfg.ReplicationStream.CDCOptions.SlotLevel)
+	}
+
+	if level == "" {
+		if supported {
+			return database.CDCSlotLevelShared
+		}
+		return database.CDCSlotLevelStream
+	}
+
+	if level == database.CDCSlotLevelShared && !supported {
+		return database.CDCSlotLevelStream
+	}
+
+	return level
 }
 
 // ConfigOptions are configuration options
@@ -1661,6 +1705,9 @@ type CDCOptions struct {
 
 	// Backfill / Replay
 	ReplayFrom *string `json:"replay_from,omitempty" yaml:"replay_from,omitempty"`
+
+	// SlotLevel controls how the replication slot/reader is scoped for sources
+	SlotLevel *database.CDCSlotLevel `json:"slot_level,omitempty" yaml:"slot_level,omitempty"`
 }
 
 // SetDefaults sets default values for CDCOptions from a provided defaults CDCOptions
@@ -1695,6 +1742,9 @@ func (o *CDCOptions) SetDefaults(cdcOptions CDCOptions) {
 	}
 	if o.ReplayFrom == nil {
 		o.ReplayFrom = cdcOptions.ReplayFrom
+	}
+	if o.SlotLevel == nil {
+		o.SlotLevel = cdcOptions.SlotLevel
 	}
 }
 

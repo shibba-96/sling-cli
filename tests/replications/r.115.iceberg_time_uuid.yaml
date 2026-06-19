@@ -1,0 +1,34 @@
+# Regression test for https://github.com/slingdata-io/sling-cli/issues/751
+source: postgres
+target: iceberg_s3
+
+defaults:
+  mode: full-refresh
+
+streams:
+  repro_751_time_uuid:
+    sql: |
+      select
+        1                       as id,
+        '08:30:00'::time        as t,
+        gen_random_uuid()       as u
+    object: public.repro_751_time_uuid
+
+hooks:
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    # read back from iceberg and verify the time value round-tripped (not 00:00:00)
+    - type: query
+      connection: iceberg_s3
+      query: select t::text as t from iceberg_catalog.public.repro_751_time_uuid
+      into: result
+
+    - type: log
+      message: 'result => { store.result[0] }'
+
+    - type: check
+      check: store.result[0].t == "08:30:00"
+      failure_message: 'expected time 08:30:00, got {store.result[0].t}'

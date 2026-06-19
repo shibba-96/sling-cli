@@ -357,7 +357,7 @@ func InsertBatchStream(conn Connection, tx Transaction, tableFName string, ds *i
 			case conn.GetType().IsMySQLLike():
 				row = processMySqlLikeInsertRow(bColumns, row)
 			case conn.GetType().IsSQLServer():
-				// row = processSQLServerInsertRow(bColumns, row)
+				row = processSQLServerInsertRow(bColumns, row)
 			}
 			vals = append(vals, row...)
 		}
@@ -668,6 +668,17 @@ func (il IsolationLevel) AsSqlIsolationLevel() sql.IsolationLevel {
 		return sql.LevelLinearizable
 	}
 	return sql.LevelDefault
+}
+
+type CDCSlotLevel string
+
+const (
+	CDCSlotLevelStream CDCSlotLevel = "stream"
+	CDCSlotLevelShared CDCSlotLevel = "shared"
+)
+
+func (sl CDCSlotLevel) String() string {
+	return string(sl)
 }
 
 type Operation string

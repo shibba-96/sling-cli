@@ -988,7 +988,9 @@
   expected_state: {}
 
 # id: 21 - records.select with exclusion globs drops matching columns while
-# keeping everything else in source order via implicit `*`.
+# keeping everything else via implicit `*`. The remaining columns emit
+# ALPHABETICALLY (the API source field order is not preserved) — so
+# {id,name,email} minus internal_* comes out [email, id, name].
 - id: 21
   name: select_exclude_glob_drops_matching_columns
   mock_response_raw: |
@@ -1008,7 +1010,7 @@
             jmespath: "@"
             select:
               - "-internal_*"
-  expected_columns: [id, name, email]
+  expected_columns: [email, id, name]
   expected_records:
     - id: "1"
       name: Alice
@@ -1051,10 +1053,10 @@
       email: bob@example.com
   expected_state: {}
 
-# id: 23 - records.select reorder: front-pins `id` and `name`, `*` expands
-# to the remaining source columns in place, and `created_at`/`updated_at`
-# pin to the back. This is the column-reorder regression guard —
-# firstObjectKeysInOrder recovers the source order from raw bytes.
+# id: 23 - records.select reorder: front-pins `id` and `name`, the `*`
+# remainder fills the middle ALPHABETICALLY (the API source field order is not
+# preserved), and `created_at`/`updated_at` pin to the back. Explicit pins hold
+# their list position; only the `*` remainder is alphabetized.
 - id: 23
   name: select_reorder_front_star_back_pins
   mock_response_raw: |
@@ -1078,26 +1080,127 @@
               - "*"
               - created_at
               - updated_at
-  # Source order of the first record is: extra_b, created_at, extra_a, name,
-  # id, updated_at, email. With select [id, name, *, created_at, updated_at]:
-  # `id` and `name` pin to the front; `*` expands to remaining source columns
-  # in source order minus pins → extra_b, extra_a, email; `created_at` and
-  # `updated_at` pin to the back.
-  expected_columns: [id, name, extra_b, extra_a, email, created_at, updated_at]
+  # With select [id, name, *, created_at, updated_at]: `id` and `name` pin to
+  # the front; the `*` remainder (the columns not otherwise named: extra_a,
+  # extra_b, email) fills the middle ALPHABETICALLY → email, extra_a, extra_b;
+  # `created_at` and `updated_at` pin to the back.
+  expected_columns: [id, name, email, extra_a, extra_b, created_at, updated_at]
   expected_records:
     - id: "1"
       name: Alice
-      extra_b: B1
-      extra_a: A1
       email: alice@example.com
+      extra_a: A1
+      extra_b: B1
       created_at: "2025-01-10"
       updated_at: "2025-01-11"
     - id: "2"
       name: Bob
-      extra_b: B2
-      extra_a: A2
       email: bob@example.com
+      extra_a: A2
+      extra_b: B2
       created_at: "2025-01-12"
       updated_at: "2025-01-13"
   expected_state: {}
+
+# Reproduces: state templates that call a function with a quoted format
+# argument (e.g. date_format(..., "%Y-%m-%d")) are NOT rendered before the
+# endpoint `setup` sequence runs. A setup request payload referencing such a
+# state var ships the raw template string to the server instead of the resolved
+# value. The main request path renders state via renderInitial(); the setup
+# path does not. This test asserts the value the setup request actually sent.
+- id: 24
+  name: test_setup_state_render_date_format
+  mock_response:
+    users:
+      - id: 1
+        name: "John Doe"
+  spec:
+    name: setup_state_render_api
+    description: "Test that state function templates render before setup runs"
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        description: "Main endpoint whose setup references a date_format() state var"
+        state:
+          # deterministic (no now()) so the expected value is stable, but
+          # exercises the exact failing pattern: function + quoted "%"-format arg
+          date_filter: '{date_format(date_parse("2026-05-01"), "%Y-%m-%d")}'
+        setup:
+          - request:
+              url: "/echo"
+              method: POST
+              payload:
+                filter: "{state.date_filter}"
+            response:
+              processors:
+                - expression: "response.json.received.filter"
+                  output: "state.echoed_filter"
+                  aggregation: last
+        request:
+          url: "/users"
+          method: GET
+        response:
+          records:
+            jmespath: users
+  expected_records:
+    - id: "1"
+      name: "John Doe"
+  # With the bug, echoed_filter is the raw '{date_format(date_parse("2026-05-01"), "%Y-%m-%d")}'.
+  # After the fix, the setup request sends (and echoes back) the resolved date.
+  expected_state:
+    date_filter: "2026-05-01"
+    echoed_filter: "2026-05-01"
+  expected_next_state: {}
+
+# id: 25 - `sync` variables must be available during the endpoint `setup`
+# sequence, not only during the main request. On an incremental re-run the prior
+# watermark is restored into endpoint.syncMap (seeded here via `sync_state`); a
+# setup request referencing {sync.last_updated} must send the resolved value.
+# The /echo handler reflects the payload so we assert what setup actually sent.
+- id: 25
+  name: test_setup_sequence_sync_var_unavailable
+  mock_response:
+    items:
+      - id: 1
+        name: "Item One"
+  sync_state:
+    last_updated: "2026-05-01T00:00:00Z"
+  spec:
+    name: setup_sync_api
+    description: "Test that sync variables are available during the setup sequence"
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        sync: [last_updated]
+        setup:
+          - request:
+              url: "/echo"
+              method: POST
+              payload:
+                watermark: "{sync.last_updated}"
+            response:
+              processors:
+                - expression: "response.json.received.watermark"
+                  output: "state.echoed_watermark"
+                  aggregation: last
+        request:
+          url: "/items"
+          method: GET
+          headers:
+            X-Watermark: "{sync.last_updated}"
+        response:
+          processors:
+            - expression: record.name
+              output: state.last_updated
+              aggregation: maximum
+          records:
+            jmespath: items
+  expected_records:
+    - id: "1"
+      name: "Item One"
+  expected_state:
+    echoed_watermark: "2026-05-01T00:00:00Z"
+  expected_next_state: {}
 

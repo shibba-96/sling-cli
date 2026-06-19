@@ -528,7 +528,7 @@ func (t *TaskExecution) getSourceOptionsMap() (options map[string]any) {
 		options["decode"] = encoding.DecodeString()
 	}
 
-	if columns := t.Config.ColumnsPrepared(); len(columns) > 0 {
+	if columns, _ := t.Config.ColumnsPrepared(); len(columns) > 0 {
 		// set as string so that StreamProcessor parses it
 		options["columns"] = g.Marshal(columns)
 	}

@@ -1,0 +1,83 @@
+# Master pipeline for the per-engine column DDL test. Builds public.cddl_src
+# (varchar(255) cols, so Oracle maps to indexable VARCHAR2) then drives one child
+# pipeline per engine via command steps. Each child asserts only what it emits.
+# redshift/databricks are commented out (connections unavailable).
+
+env:
+  SOURCE: postgres
+
+steps:
+  # build the reusable source table
+  - connection: '{env.SOURCE}'
+    query: |
+      drop table if exists public.cddl_src;
+      create table public.cddl_src (
+        id bigint,
+        email varchar(255),
+        org_id varchar(255),
+        region varchar(255),
+        notes varchar(255)
+      );
+      insert into public.cddl_src (id, email, org_id, region, notes) values
+        (1, 'a@example.com', 'org-1', 'us-east', 'first note'),
+        (2, 'b@example.com', 'org-2', 'eu-west', 'second note');
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.01.postgres.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.02.mysql.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.03.mariadb.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.04.sqlserver.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.05.sqlite.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.06.oracle.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.07.clickhouse.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.08.snowflake.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.09.duckdb.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.10.motherduck.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.11.bigquery.yaml
+    print: true
+
+  - type: command
+    command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.12.starrocks.yaml
+    print: true
+
+  # redshift & databricks connections currently unavailable — uncomment to enable:
+  # - type: command
+  #   command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.13.redshift.yaml
+  #   print: true
+  #
+  # - type: command
+  #   command: sling run -p tests/pipelines/column_ddl/p.columns_ddl.14.databricks.yaml
+  #   print: true
+
+  - type: log
+    message: 'SUCCESS: all column DDL engine pipelines passed'

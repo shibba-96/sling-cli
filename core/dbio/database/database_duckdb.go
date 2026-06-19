@@ -78,6 +78,24 @@ func (conn *DuckDbConn) DuckDb() *iop.DuckDb {
 	return conn.duck
 }
 
+// GenerateDDL builds the CREATE TABLE plus post-CREATE indexes and column
+// comments (covers DuckDB and MotherDuck).
+func (conn *DuckDbConn) GenerateDDL(table Table, data iop.Dataset, temporary bool) (string, error) {
+	ddl, err := conn.BaseConn.GenerateDDL(table, data, temporary)
+	if err != nil {
+		return ddl, g.Error(err)
+	}
+
+	ddl, err = table.AddPrimaryKeyToDDL(ddl, data.Columns)
+	if err != nil {
+		return ddl, g.Error(err)
+	}
+
+	ddl = appendIndexesAndComments(strings.TrimSpace(ddl), conn, table, data, temporary)
+
+	return strings.TrimSpace(ddl), nil
+}
+
 func (conn *DuckDbConn) dbPath() (string, error) {
 	dbPathU, err := net.NewURL(conn.GetURL())
 	if err != nil {

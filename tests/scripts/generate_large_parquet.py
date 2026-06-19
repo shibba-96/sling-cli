@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "pyarrow",
+# ]
+# ///
 """
 Generate a Parquet file with very large string values to test DuckDB scanner handling.
 This reproduces issue #668 where DuckDB hangs when reading Parquet files with large strings.

@@ -415,6 +415,9 @@ func (conn *StarRocksConn) GenerateDDL(table Table, data iop.Dataset, temporary 
 	}
 	ddl = strings.ReplaceAll(ddl, "{distribution}", distribution)
 
+	// inline column comments (StarRocks' post-CREATE ALTER ... COMMENT is async)
+	ddl = conn.injectInlineColumnComments(ddl, data.Columns, "`", temporary)
+
 	return ddl, nil
 }
 
@@ -660,4 +663,94 @@ func (conn *StarRocksConn) GetDatabases() (data iop.Dataset, err error) {
 	data1.Columns[0].Name = "name" // rename
 
 	return data1, nil
+}
+
+// injectInlineColumnComments adds an inline COMMENT '<desc>' to each described
+// column definition, for dialects whose post-CREATE comment path is async/stale
+func (conn *StarRocksConn) injectInlineColumnComments(ddl string, columns iop.Columns, quoteChar string, temporary bool) string {
+	if temporary {
+		return ddl
+	}
+
+	// build lookup of described columns (escaped)
+	comments := map[string]string{}
+	for _, col := range columns {
+		if !col.IsDDLExplicit() {
+			continue
+		}
+		description := col.Metadata[iop.ColMetaDescription.String()]
+		if description == "" {
+			description = col.Description
+		}
+		if description == "" {
+			continue
+		}
+		comments[col.Name] = strings.ReplaceAll(description, "'", "''")
+	}
+	if len(comments) == 0 {
+		return ddl
+	}
+
+	createIdx := strings.Index(strings.ToUpper(ddl), "CREATE TABLE")
+	if createIdx == -1 {
+		return ddl
+	}
+	openParen := strings.Index(ddl[createIdx:], "(")
+	if openParen == -1 {
+		return ddl
+	}
+	openParen += createIdx
+
+	// find the matching closing paren of the column list (balanced)
+	depth := 0
+	closeParen := -1
+	for i := openParen; i < len(ddl); i++ {
+		switch ddl[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				closeParen = i
+			}
+		}
+		if closeParen != -1 {
+			break
+		}
+	}
+	if closeParen == -1 {
+		return ddl
+	}
+
+	body := ddl[openParen+1 : closeParen]
+
+	// split body on top-level commas (parens-aware)
+	var entries []string
+	d, start := 0, 0
+	for i := 0; i < len(body); i++ {
+		switch body[i] {
+		case '(':
+			d++
+		case ')':
+			d--
+		case ',':
+			if d == 0 {
+				entries = append(entries, body[start:i])
+				start = i + 1
+			}
+		}
+	}
+	entries = append(entries, body[start:])
+
+	for idx, entry := range entries {
+		trimmed := strings.TrimSpace(entry)
+		for name, desc := range comments {
+			if strings.HasPrefix(trimmed, quoteChar+name+quoteChar) {
+				entries[idx] = strings.TrimRight(entry, " \t") + g.F(" COMMENT '%s'", desc)
+				break
+			}
+		}
+	}
+
+	return ddl[:openParen+1] + strings.Join(entries, ",") + ddl[closeParen:]
 }

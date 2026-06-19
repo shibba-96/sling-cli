@@ -335,8 +335,20 @@ func (ac *APIConnection) ReadDataflow(endpointName string, sCfg APIStreamConfig)
 	// dataflow so the caller (task_run_read.go) treats it as a no-record stream.
 	if endpoint.QueueOnly {
 		if _, err = ds.Collect(0); err != nil {
+			// on failure, don't mark queues done — consumers stop via context cancel
 			return nil, g.Error(err, "queue_only endpoint failed during drain")
 		}
+
+		// mark produced queues done (only after success) to unblock eager consumers
+		for _, queueName := range endpoint.ProducerQueueNames() {
+			if q, ok := ac.GetQueue(queueName); ok {
+				q.Flush()
+				if err = q.MarkDone(); err != nil {
+					return nil, g.Error(err, "could not mark queue done: %s", queueName)
+				}
+			}
+		}
+
 		if err = endpoint.teardown(); err != nil {
 			return nil, g.Error(err, "could not teardown queue_only endpoint")
 		}

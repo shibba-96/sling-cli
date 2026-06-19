@@ -818,3 +818,72 @@ streams:
 		})
 	}
 }
+
+func TestExpandSelectColumns(t *testing.T) {
+	cols := []string{"full_name", "id", "html_url"}
+
+	tests := []struct {
+		name       string
+		selectList []string
+		columns    []string
+		want       []string
+		wantErr    bool
+	}{
+		{
+			name:       "no token passes through unchanged",
+			selectList: []string{"id", "name"},
+			columns:    cols,
+			want:       []string{"id", "name"},
+		},
+		{
+			name:       "empty select passes through",
+			selectList: nil,
+			columns:    cols,
+			want:       nil,
+		},
+		{
+			name:       "token alone expands to columns in declared order",
+			selectList: []string{"@columns"},
+			columns:    cols,
+			want:       []string{"full_name", "id", "html_url"},
+		},
+		{
+			name:       "token then wildcard pins columns first",
+			selectList: []string{"@columns", "*"},
+			columns:    cols,
+			want:       []string{"full_name", "id", "html_url", "*"},
+		},
+		{
+			name:       "expansion dedupes a name listed again after the token",
+			selectList: []string{"@columns", "id", "extra"},
+			columns:    cols,
+			want:       []string{"full_name", "id", "html_url", "extra"},
+		},
+		{
+			name:       "token not first is an error",
+			selectList: []string{"id", "@columns"},
+			columns:    cols,
+			wantErr:    true,
+		},
+		{
+			name:       "token with no columns is an error",
+			selectList: []string{"@columns"},
+			columns:    nil,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := expandSelectColumns(tt.selectList, tt.columns)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			if !assert.NoError(t, err) {
+				return
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

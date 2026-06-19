@@ -1,0 +1,87 @@
+source: '{my_source}'
+target: '{my_target}'
+
+defaults:
+  mode: full-refresh
+
+hooks:
+  start:
+    - type: query
+      connection: '{source.name}'
+      query: |
+        BEGIN
+          EXECUTE IMMEDIATE 'DROP TABLE {env.schema}.CUSTOMERS_NOSCHEMA PURGE';
+        EXCEPTION
+          WHEN OTHERS THEN
+            IF SQLCODE != -942 THEN
+              RAISE;
+            END IF;
+        END;
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        CREATE TABLE {env.schema}.CUSTOMERS_NOSCHEMA (
+          id NUMBER,
+          name VARCHAR2(50)
+        )
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        INSERT INTO {env.schema}.CUSTOMERS_NOSCHEMA (id, name) VALUES (1, 'Alice');
+        INSERT INTO {env.schema}.CUSTOMERS_NOSCHEMA (id, name) VALUES (2, 'Bob');
+        INSERT INTO {env.schema}.CUSTOMERS_NOSCHEMA (id, name) VALUES (3, 'Carol');
+
+    - type: query
+      connection: '{target.name}'
+      query: drop table if exists public.customers_noschema
+
+  end:
+    - type: query
+      connection: '{target.name}'
+      query: select * from public.customers_noschema order by id
+      into: result
+
+    - type: log
+      message: |
+        store.result => { pretty_table(store.result) }
+
+    # ensure all rows replicated with the bare (no-schema) stream name
+    - type: check
+      check: length(store.result) == 3
+
+    - type: check
+      check: store.result[0].name == "Alice"
+
+    - type: check
+      check: store.result[2].name == "Carol"
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        BEGIN
+          EXECUTE IMMEDIATE 'DROP TABLE {env.schema}.CUSTOMERS_NOSCHEMA PURGE';
+        EXCEPTION
+          WHEN OTHERS THEN
+            IF SQLCODE != -942 THEN
+              RAISE;
+            END IF;
+        END;
+
+    - type: query
+      connection: '{target.name}'
+      query: drop table if exists public.customers_noschema
+
+# bare table name (no schema qualifier) — exercises the schema-injection path.
+# Sling must inject & case-normalize the connection's default schema so Oracle's
+# owner-qualified metadata lookup resolves the columns.
+# https://github.com/slingdata-io/sling-cli/issues/749
+streams:
+  CUSTOMERS_NOSCHEMA:
+    object: public.customers_noschema
+
+env:
+  schema: ${SCHEMA}
+  my_source: ${SOURCE}
+  my_target: ${TARGET}

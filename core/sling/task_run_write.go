@@ -431,17 +431,17 @@ func (t *TaskExecution) WriteToDb(cfg *Config, df *iop.Dataflow, tgtConn databas
 
 	defer tgtConn.Rollback() // rollback in case of error
 
-	// pre-merge-hooks
-	if err = t.ExecuteHooks(HookStagePreMerge); err != nil {
-		err = g.Error(err, "error executing pre-merge hooks")
-		return 0, err
-	}
-
 	setStage("5 - prepare-final")
 
 	// Prepare final table operations
 	if err = prepareFinal(t, cfg, tgtConn, targetTable, df); err != nil {
 		err = g.Error(err, "error preparing final table")
+		return 0, err
+	}
+
+	// pre-merge-hooks
+	if err = t.ExecuteHooks(HookStagePreMerge); err != nil {
+		err = g.Error(err, "error executing pre-merge hooks")
 		return 0, err
 	}
 
@@ -547,15 +547,15 @@ func (t *TaskExecution) writeToDbDirectly(cfg *Config, df *iop.Dataflow, tgtConn
 
 	defer tgtConn.Rollback()
 
-	// pre-merge-hooks
-	if err = t.ExecuteHooks(HookStagePreMerge); err != nil {
-		err = g.Error(err, "error executing pre-merge hooks")
-		return 0, err
-	}
-
 	// Prepare final table operations & handlers
 	if err = prepareFinal(t, cfg, tgtConn, targetTable, df); err != nil {
 		err = g.Error(err, "error preparing final table")
+		return 0, err
+	}
+
+	// pre-merge-hooks
+	if err = t.ExecuteHooks(HookStagePreMerge); err != nil {
+		err = g.Error(err, "error executing pre-merge hooks")
 		return 0, err
 	}
 

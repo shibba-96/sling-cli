@@ -307,7 +307,8 @@ func (t *TaskExecution) ReadFromDB(cfg *Config, srcConn database.Connection) (df
 	}
 
 	// set constraints
-	for _, col := range cfg.ColumnsPrepared() {
+	cols, _ := cfg.ColumnsPrepared()
+	for _, col := range cols {
 		if c := sTable.Columns.GetColumn(col.Name); c != nil {
 			sTable.Columns[c.Position-1].Constraint = col.Constraint
 		}
