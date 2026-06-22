@@ -53,12 +53,11 @@ core:
       SELECT 1 FROM {tgt_table} tgt WHERE {src_tgt_pk_equal}
     )
 
+  # Redshift does not support table aliases in DELETE (https://docs.aws.amazon.com/redshift/latest/dg/r_DELETE.html)
   merge_delete_insert: |
-    DELETE FROM {tgt_table} tgt
-    WHERE EXISTS (
-      SELECT 1 FROM {src_table} src
-      WHERE {src_tgt_pk_equal}
-    );
+    DELETE FROM {tgt_table}
+    USING {src_table} src
+    WHERE {src_tgt_pk_equal_tbl};
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM {src_table} src
 
