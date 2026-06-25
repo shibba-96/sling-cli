@@ -29,7 +29,7 @@ import (
 type StarRocksConn struct {
 	BaseConn
 	URL     string
-	fePort  string
+	feHost  string // "host:port" of the redirected CN/BE node; set on first 307
 	version int
 }
 
@@ -598,9 +598,9 @@ func (conn *StarRocksConn) StreamLoad(feURL, tableFName string, df *iop.Dataflow
 		}
 
 		apiURL := strings.TrimSuffix(applyCreds(fu.U), "/") + g.F("/api/%s/%s/_stream_load", table.Schema, table.Name)
-		if conn.fePort != "" {
-			// this is the fix to not freeze, call the redirected port directly
-			apiURL = strings.ReplaceAll(apiURL, fu.U.Port(), conn.fePort)
+		if conn.feHost != "" {
+			// use the redirected CN/BE host:port directly to avoid FE proxy redirect on every chunk
+			apiURL = strings.ReplaceAll(apiURL, fu.U.Host, conn.feHost)
 		}
 
 		resp, respBytes, err := net.ClientDo(http.MethodPut, apiURL, reader, headers, timeout)
@@ -611,7 +611,7 @@ func (conn *StarRocksConn) StreamLoad(feURL, tableFName string, df *iop.Dataflow
 				redirectUrlStr := strings.ReplaceAll(redirectUrl.String(), "127.0.0.1", fu.U.Hostname())
 				redirectUrl, _ = url.Parse(redirectUrlStr)
 				g.Warn("StarRocks redirected the API call to '%s://%s'. Please use that as your FE url.", redirectUrl.Scheme, redirectUrl.Host)
-				conn.fePort = redirectUrl.Port()
+				conn.feHost = redirectUrl.Host
 				reader, _ = os.Open(localFile.Node.Path()) // re-open file since it would be closed
 				_, respBytes, err = net.ClientDo(http.MethodPut, applyCreds(redirectUrl), reader, headers, timeout)
 			}
