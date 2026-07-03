@@ -1,7 +1,7 @@
 id,first_name,last_name,email,target,create_dt,date,rating,code,update_dt
 1,"AOCG,""
 883",Lumox,ilumox0@unc.edu,true,2019-02-11 11:23:00.501,2019-02-11,35.987,1,2019-02-11 11:23:00.501
-2,Terrell,"EKOZ,989",tmee1@example.com,true,2019-08-19 17:02:09.000,2019-08-19,89.983,2,2019-08-19 17:02:09.000
+2,Terrell,"EKOZ,989",tmee1@example.com,true,2019-08-19 17:02:09.000,2019-08-19,89.983,2.1,2019-08-19 17:02:09.000
 3,Frayda,Comolli,fcomolli2@cbslocal.com,,2019-08-07 16:48:12.000,2019-08-07,89.401,3,2019-08-07 16:48:12.000
 4,Alphonse,Crookshank,acrookshank3@mapy.cz,true,2019-03-31 14:41:45.000,2019-03-31,19.933,4,2019-03-31 14:41:45.000
 5,Mathilda,Deaves,mdeaves4@va.gov,true,2019-07-15 21:20:39.000,2019-07-15,90.643,5,2019-07-15 21:20:39.000
