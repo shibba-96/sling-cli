@@ -2483,3 +2483,20 @@
   output_contains:
     - 'execution succeeded'
     - 'SUCCESS: Oracle sqlldr UTF-8 fidelity test passed'
+
+# discussion #763: an explicit column cast (columns: modifier DSL) must be honored
+# end-to-end. The stream processor used to silently revert a user-declared
+# datetime/timestamp column back to string ("column type change for X") when a
+# value didn't parse, making the temp table text while the final DDL kept the
+# declared type. Fix: sourced (explicitly typed) columns keep their type.
+- id: 307
+  name: 'Explicit datetime cast honored end-to-end (discussion #763)'
+  group: duckdb
+  run: 'sling run -d -r tests/replications/r.120.explicit_cast_datetime.yaml'
+  output_contains:
+    - 'rowid target type => TIMESTAMP WITH TIME ZONE'
+    - '✓ explicit timestampz cast honored end-to-end (not reverted to string)'
+    - '✓ all 3 timestamp rows loaded'
+    - 'execution succeeded'
+  output_does_not_contain:
+    - 'column type change for rowid'

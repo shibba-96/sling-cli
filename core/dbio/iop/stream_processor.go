@@ -850,7 +850,9 @@ func (sp *StreamProcessor) CastVal(i int, val any, col *Column) any {
 				fVal, err := sp.toFloat64E(val)
 				if err != nil || sp.ds == nil {
 					// is string
-					sp.ds.ChangeColumn(i, StringType)
+					if !col.Sourced {
+						sp.ds.ChangeColumn(i, StringType) // revert to string only if not explicitly typed
+					}
 					cs.StringCnt++
 					cs.TotalCnt++
 					sVal = cast.ToString(val)
@@ -858,7 +860,9 @@ func (sp *StreamProcessor) CastVal(i int, val any, col *Column) any {
 					return sVal
 				}
 				// is decimal
-				sp.ds.ChangeColumn(i, DecimalType)
+				if !col.Sourced {
+					sp.ds.ChangeColumn(i, DecimalType) // widen to decimal only if not explicitly typed
+				}
 				cs.DecCnt++
 				cs.TotalCnt++
 
@@ -893,7 +897,9 @@ func (sp *StreamProcessor) CastVal(i int, val any, col *Column) any {
 			return nil
 		} else if err != nil {
 			// is string
-			sp.ds.ChangeColumn(i, StringType)
+			if !col.Sourced {
+				sp.ds.ChangeColumn(i, StringType) // revert to string only if not explicitly typed
+			}
 			cs.StringCnt++
 			cs.TotalCnt++
 			sVal = cast.ToString(val)
@@ -917,7 +923,9 @@ func (sp *StreamProcessor) CastVal(i int, val any, col *Column) any {
 			return nil
 		} else if err != nil {
 			// is string
-			sp.ds.ChangeColumn(i, StringType)
+			if !col.Sourced {
+				sp.ds.ChangeColumn(i, StringType) // revert to string only if not explicitly typed
+			}
 			cs.StringCnt++
 			cs.TotalCnt++
 			sVal = cast.ToString(val)
@@ -959,7 +967,9 @@ func (sp *StreamProcessor) CastVal(i int, val any, col *Column) any {
 		bVal, err := sp.CastToBool(val)
 		if err != nil {
 			// is string
-			sp.ds.ChangeColumn(i, StringType)
+			if !col.Sourced {
+				sp.ds.ChangeColumn(i, StringType) // revert to string only if not explicitly typed
+			}
 			cs.StringCnt++
 			cs.TotalCnt++
 			sVal = cast.ToString(val)
@@ -992,7 +1002,9 @@ func (sp *StreamProcessor) CastVal(i int, val any, col *Column) any {
 	case col.Type.IsDatetime() || col.Type.IsDate():
 		dVal, err := sp.CastToTime(val)
 		if err != nil && !g.In(val, "0000-00-00", "0000-00-00 00:00:00") {
-			sp.ds.ChangeColumn(i, StringType)
+			if !col.Sourced {
+				sp.ds.ChangeColumn(i, StringType) // revert to string only if not explicitly typed
+			}
 			cs.StringCnt++
 			sVal = cast.ToString(val)
 			sp.rowChecksum[i] = uint64(len(sVal))
