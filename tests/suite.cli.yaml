@@ -2427,3 +2427,16 @@
     - '"store_nested_rendered":"true"'
     - '"state_rendered":"true"'
     - 'execution succeeded'
+
+# issue #770: DuckDB local HTTP stream must raise http_timeout on every session
+# (not only when httpfs is registered), else slow sources hit the 30s default.
+- id: 303
+  name: 'DuckDB http stream raises http_timeout on every session (issue #770)'
+  group: duckdb
+  run: 'sling run -d -r tests/replications/r.118.duckdb_http_timeout.yaml'
+  conns:
+    - postgres
+  output_contains:
+    - '✓ All 5,000 rows written to Parquet via DuckDB HTTP stream'
+    - '✓ DuckDB http_timeout raised above the 30s default'
+    - 'execution succeeded'

@@ -379,12 +379,19 @@ func (duck *DuckDb) getLoadExtensionSQL() (sql string) {
 		} else {
 			sql += fmt.Sprintf("INSTALL %s; LOAD %s;", extension, strings.TrimSuffix(extension, "from community"))
 		}
-
-		// set timeout for httpfs extension
-		if extension == "httpfs" {
-			sql += "SET http_timeout = 9999;"
-		}
 	}
+	return
+}
+
+// getSessionSettingsSQL returns SET statements applied on every DuckDB session.
+func (duck *DuckDb) getSessionSettingsSQL() (sql string) {
+	// raise http_timeout on every session (not just when httpfs is registered)
+	httpTimeout := 9999
+	if val := cast.ToInt(duck.GetProp("http_timeout")); val > 0 {
+		httpTimeout = val
+	}
+
+	sql += fmt.Sprintf("SET http_timeout = %d;", httpTimeout)
 	return
 }
 
@@ -571,6 +578,9 @@ func (duck *DuckDb) SubmitSQL(sql string, showChanges bool) (err error) {
 		}
 		if secretSQL := duck.getCreateSecretSQL(); secretSQL != "" {
 			extensionSecretSQL = extensionSecretSQL + strings.Trim(secretSQL, ";") + ";"
+		}
+		if settingsSQL := duck.getSessionSettingsSQL(); settingsSQL != "" {
+			extensionSecretSQL = extensionSecretSQL + strings.Trim(settingsSQL, ";") + ";"
 		}
 		duck.initialized = true // commented out for now
 		if extensionSecretSQL != "" {
@@ -1009,6 +1019,9 @@ func (duck *DuckDb) StreamArrow(ctx context.Context, sql string) (reader io.Read
 	}
 	if secretSQL := duck.getCreateSecretSQL(); secretSQL != "" {
 		scriptParts = append(scriptParts, secretSQL)
+	}
+	if settingsSQL := duck.getSessionSettingsSQL(); settingsSQL != "" {
+		scriptParts = append(scriptParts, settingsSQL)
 	}
 	scriptParts = append(scriptParts, "SET preserve_insertion_order = false;")
 
