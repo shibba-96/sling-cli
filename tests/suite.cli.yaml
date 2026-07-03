@@ -2454,3 +2454,17 @@
     - '✓ All 5,000 rows written to Parquet via DuckDB HTTP stream'
     - '✓ DuckDB http_timeout raised above the 30s default'
     - 'execution succeeded'
+
+# MongoDB replica-set / Atlas seed-list URL (comma-separated multi-host authority)
+# must load. Go 1.26+ made url.Parse reject the host list, breaking these URLs.
+- id: 305
+  name: 'MongoDB seed-list URL (multi-host authority) loads without parse error'
+  group: mongodb
+  run: 'sling conns list'
+  env:
+    MONGO_SEEDLIST_TEST: 'mongodb://user:pass@h0.mongodb.net:27017,h1.mongodb.net:27017,h2.mongodb.net:27017/?ssl=true&replicaSet=atlas-abc-shard-0&authSource=admin'
+  output_contains:
+    - 'MONGO_SEEDLIST_TEST'
+    - 'DB - MongoDB'
+  output_does_not_contain:
+    - 'could not parse'
