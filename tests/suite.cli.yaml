@@ -2428,6 +2428,20 @@
     - '"state_rendered":"true"'
     - 'execution succeeded'
 
+# DuckDB describe of a missing table must surface the real Catalog Error,
+# not the cryptic "no columns found / could not describe query" (1.5.20 race).
+- id: 301
+  name: 'DuckDB describe missing table surfaces Catalog Error (not "no columns found")'
+  group: duckdb
+  run: 'sling run -p tests/pipelines/p.37.duckdb_describe_missing_table.yaml'
+  output_contains:
+    - 'step (validate) failed'
+    - 'Catalog Error'
+    - 'does not exist'
+  output_does_not_contain:
+    - 'no columns found'
+    - 'no TTY available'
+
 # issue #770: DuckDB local HTTP stream must raise http_timeout on every session
 # (not only when httpfs is registered), else slow sources hit the 30s default.
 - id: 303

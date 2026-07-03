@@ -1504,6 +1504,17 @@ func (duck *DuckDb) Describe(query string) (columns Columns, err error) {
 		return nil, g.Error(err, "could not describe query")
 	}
 
+	// A failing describe (e.g. a missing table) emits its real error
+	if len(data.Rows) == 0 && duck.query != nil {
+		deadline := time.Now().Add(500 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			if qErr := duck.query.err; qErr != nil {
+				return nil, g.Error(qErr, "could not describe query")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
 	for k, rec := range data.Records() {
 		var col Column
 
