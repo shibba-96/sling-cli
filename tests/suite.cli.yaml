@@ -2001,6 +2001,26 @@
   output_contains:
     - 'CDC merge_cdc MySQL test PASSED'
 
+# Redshift merge templates: DELETE/UPDATE targets must not carry a table alias
+# (Redshift grammar has no alias slot for the target). Covers delete_insert,
+# change_capture and change_capture_soft. Offline template rendering is also
+# guarded by TestRedshiftMergeTemplatesNoAlias in the database package; these
+# entries require a reachable REDSHIFT connection so they are commented out by
+# default (Redshift cluster not always available).
+# - id: 210
+#   name: 'Redshift merge delete_insert (no DELETE alias)'
+#   run: 'sling run -d -r tests/replications/r.121.redshift_delete_insert.yaml'
+#   output_contains:
+#     - 'SUCCESS: Redshift delete_insert replaced stale row without DELETE alias error'
+#     - 'execution succeeded'
+#
+# - id: 211
+#   name: 'Redshift CDC change_capture / change_capture_soft (no DELETE/UPDATE alias)'
+#   run: 'sling run -d -p tests/pipelines/cdc/p.36.cdc_merge_redshift.yaml'
+#   output_contains:
+#     - 'CDC merge_cdc Redshift test PASSED'
+#     - 'CDC change_capture_soft Redshift test PASSED'
+
 # MSSQL IDENTITY -> MySQL AUTO_INCREMENT fix: when auto_increment is enabled without
 # primary_key, MySQL requires AUTO_INCREMENT columns to have a KEY - Sling must synthesize one.
 - id: 208
