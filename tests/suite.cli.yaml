@@ -2468,3 +2468,18 @@
     - 'DB - MongoDB'
   output_does_not_contain:
     - 'could not parse'
+
+# Oracle sqlldr silently corrupted non-ASCII text (VARCHAR2/NVARCHAR2/CLOB) on the
+# bulk load path: the control file had no CHARACTERSET clause, so SQL*Loader read
+# Sling's UTF-8 CSV using the client NLS_LANG charset and mangled multibyte chars
+# into U+FFFD. Fix: add `CHARACTERSET AL32UTF8` to the sqlldr control template.
+- id: 306
+  name: 'Oracle sqlldr UTF-8 fidelity (https://github.com/slingdata-io/sling-cli/issues/759)'
+  run: 'sling run -d -r tests/replications/r.119.oracle_sqlldr_utf8.yaml'
+  env:
+    SCHEMA: ORACLE
+    SOURCE: ORACLE
+    TARGET: ORACLE
+  output_contains:
+    - 'execution succeeded'
+    - 'SUCCESS: Oracle sqlldr UTF-8 fidelity test passed'
