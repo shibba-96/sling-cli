@@ -49,14 +49,12 @@ func (tk *TableKeys) UnmarshalJSON(data []byte) error {
 			continue
 		}
 
-		// all other keys: plain []string
+		// all other keys (primary, unique, partition, ...): plain []string.
+		// Flatten nested lists so the composite form (e.g. primary: [[a, b]])
+		// is treated identically to the flat form (primary: [a, b]).
 		switch v := val.(type) {
 		case []any:
-			strs := []string{}
-			for _, item := range v {
-				strs = append(strs, cast.ToString(item))
-			}
-			out[kt] = strs
+			out[kt] = flattenToStrings(v)
 		case nil:
 			out[kt] = []string{}
 		default:
@@ -66,6 +64,25 @@ func (tk *TableKeys) UnmarshalJSON(data []byte) error {
 
 	*tk = out
 	return nil
+}
+
+// flattenToStrings turns an arbitrarily-nested list value into a flat []string.
+// This lets the composite/wrapped list form (primary: [[user_id, brand_id]])
+// be accepted for non-index keys and behave the same as a flat list. Empty
+// tokens are dropped so a trailing separator does not create a phantom column.
+func flattenToStrings(items []any) (out []string) {
+	for _, item := range items {
+		switch v := item.(type) {
+		case []any:
+			out = append(out, flattenToStrings(v)...)
+		default:
+			s := strings.TrimSpace(cast.ToString(v))
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return
 }
 
 // UnmarshalYAML delegates to UnmarshalJSON by round-tripping through JSON, so

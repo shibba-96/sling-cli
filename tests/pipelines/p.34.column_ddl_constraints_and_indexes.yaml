@@ -368,6 +368,68 @@ steps:
     check: int_parse(store.anon_expr[0].cnt) == 1
     failure_message: "expected composite index mixing col1 and LOWER(col2)"
 
+  # 4c. table_keys.primary / table_keys.unique composite (wrapped-list) form.
+  # primary: [[user_id, brand_id]] must be accepted the same as the flat list
+  # form and produce a composite PRIMARY KEY. Previously this errored with
+  # "could not set primary key. Did not find column".
+  - type: query
+    connection: postgres
+    query: |
+      DROP TABLE IF EXISTS public.tk_pk_src;
+      CREATE TABLE public.tk_pk_src (id bigint, user_id bigint, brand_id bigint, name text);
+      INSERT INTO public.tk_pk_src (id, user_id, brand_id, name) VALUES
+      (1, 10, 100, 'alice'),
+      (2, 20, 200, 'bob');
+
+  - type: query
+    connection: postgres
+    query: DROP TABLE IF EXISTS public.tk_pk_dest
+
+  - type: replication
+    id: repl_tk_primary
+    replication:
+      source: postgres
+      target: postgres
+      defaults:
+        mode: full-refresh
+      streams:
+        public.tk_pk_src:
+          object: public.tk_pk_dest
+          target_options:
+            table_keys:
+              primary: [[user_id, brand_id]]
+              unique: [[name]]
+
+  - type: check
+    check: state.repl_tk_primary.status == "success"
+    failure_message: "table_keys primary/unique composite replication failed: {state.repl_tk_primary.error}"
+
+  # composite PRIMARY KEY on (user_id, brand_id)
+  - type: query
+    connection: postgres
+    query: |
+      SELECT string_agg(kcu.column_name, ',' ORDER BY kcu.ordinal_position) as cols
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+      WHERE tc.table_name = 'tk_pk_dest' AND tc.constraint_type = 'PRIMARY KEY'
+    into: tk_pk
+
+  - type: check
+    check: store.tk_pk[0].cols == "user_id,brand_id"
+    failure_message: "expected composite PRIMARY KEY (user_id,brand_id), got {store.tk_pk[0].cols}"
+
+  # unique key on name -> unique index
+  - type: query
+    connection: postgres
+    query: |
+      SELECT count(*) as cnt FROM pg_indexes
+      WHERE tablename = 'tk_pk_dest' AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%(name)%'
+    into: tk_uniq
+
+  - type: check
+    check: int_parse(store.tk_uniq[0].cnt) >= 1
+    failure_message: "expected a UNIQUE index on name from table_keys.unique"
+
   # 5. Reserved-but-unsupported modifier — auto_increment must fail fast at
   # config prep with a clear "not yet supported" error. on_failure: warn lets
   # the pipeline continue so the failure (status + message) can be asserted.
@@ -421,6 +483,8 @@ steps:
       DROP TABLE IF EXISTS public.tk_idx_dest;
       DROP TABLE IF EXISTS public.anon_idx_src;
       DROP TABLE IF EXISTS public.anon_idx_dest;
+      DROP TABLE IF EXISTS public.tk_pk_src;
+      DROP TABLE IF EXISTS public.tk_pk_dest;
       DROP TABLE IF EXISTS public.col_unsupp_src;
       DROP TABLE IF EXISTS public.col_unsupp_dest;
     on_failure: warn
