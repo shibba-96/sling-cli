@@ -1,0 +1,73 @@
+# Regression for a silent data-corruption bug: an explicit `columns:` cast to a
+# bare, unsized `decimal` (type only, no precision) used to lock the
+# sample-inferred precision/scale as if the user had pinned it. The inference
+# sample (~900 rows) only sees small `code` values, so it derived decimal(3,1)
+# — but `code` grows to 1000 in the tail. On StarRocks (which honors
+# decimal(P,S) tightly) every value >= 100 silently saturated to 99.9,
+# corrupting the column (sum 4950 instead of 500500).
+#
+# Fix: an unsized decimal cast pins only the *type* (so it survives streaming,
+# per discussion #763) while precision/scale stay inferred and get safely
+# widened. This test loads all 1000 rows and verifies `code` is intact.
+source: LOCAL
+target: STARROCKS
+
+hooks:
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    # the target code column must be widened well beyond the under-sized
+    # decimal(3,1); assert precision >= 10 so values up to 1000 fit
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT numeric_precision AS p
+        FROM information_schema.columns
+        WHERE table_schema = 'sling_test'
+          AND table_name = 'unsized_decimal_tgt'
+          AND column_name = 'code'
+      into: prec
+
+    - type: log
+      message: "code target precision => {store.prec[0].p}"
+
+    - type: check
+      check: int_parse(store.prec[0].p) >= 10
+      failure_message: "code precision should be widened (>=10), got {store.prec[0].p} — unsized decimal was under-sized"
+      success_message: "✓ unsized decimal widened (precision {store.prec[0].p})"
+
+    # all 1000 rows must be present and the code sum must be fully preserved
+    # (1+2+...+1000 = 500500), proving no values overflowed/saturated
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT count(*) AS cnt, sum(abs(truncate(code, 0))) AS code_sum
+        FROM sling_test.unsized_decimal_tgt
+      into: agg
+
+    - type: check
+      check: int_parse(store.agg[0].cnt) == 1000
+      failure_message: "expected 1000 rows, got {store.agg[0].cnt}"
+      success_message: "✓ all 1000 rows loaded"
+
+    - type: check
+      check: int_parse(store.agg[0].code_sum) == 500500
+      failure_message: "code sum should be 500500 (no overflow), got {store.agg[0].code_sum} — decimal was under-sized and saturated values"
+      success_message: "SUCCESS: starrocks unsized decimal preserved (issue #766 follow-up)"
+
+    - type: query
+      connection: '{target.name}'
+      query: DROP TABLE IF EXISTS sling_test.unsized_decimal_tgt
+
+streams:
+  tests/files/test1.csv:
+    object: sling_test.unsized_decimal_tgt
+    mode: full-refresh
+    primary_key: [id]
+    target_options:
+      use_bulk: true
+    columns:
+      # bare, unsized decimal — type pinned, precision must stay inferred+widened
+      code: decimal

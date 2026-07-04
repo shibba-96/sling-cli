@@ -2407,6 +2407,22 @@
   output_contains:
     - 'group concurrency checks passed'
 
+# Regression: an explicit unsized `decimal` cast (columns: {code: decimal}) must
+# not lock the sample-inferred precision as user-specified. The 900-row sample
+# under-sized code to decimal(3,1); StarRocks then saturated values >= 100,
+# corrupting data (sum 4950 vs 500500). Fix widens the inferred precision while
+# keeping the type pinned. See issue #766 follow-up.
+- id: 308
+  name: 'StarRocks unsized decimal cast is widened, not saturated'
+  run: 'sling run -d -r tests/replications/r.122.starrocks_unsized_decimal.yaml'
+  conns:
+    - starrocks
+  output_contains:
+    - '✓ unsized decimal widened'
+    - '✓ all 1000 rows loaded'
+    - 'SUCCESS: starrocks unsized decimal preserved (issue #766 follow-up)'
+    - 'execution succeeded'
+
 - id: 248
   name: 'Test on_failure:warn sets warning status & propagates through groups'
   run: 'sling run -p tests/pipelines/p.35.on_failure_warn_status.yaml'

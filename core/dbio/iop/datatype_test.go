@@ -10,6 +10,7 @@ import (
 	"github.com/slingdata-io/sling-cli/core/dbio"
 	"github.com/spf13/cast"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func bParseString(sp *StreamProcessor, val string, b *testing.B) {
@@ -480,6 +481,69 @@ func TestColumnTyping(t *testing.T) {
 	precision, scale := ct.Decimal.Apply(col)
 	assert.Equal(t, 10, precision)
 	assert.Equal(t, 0, scale)
+}
+
+// TestCoerceUnsizedDecimalCast guards against a data-corruption bug where an
+// explicit `columns:` cast to a bare, unsized `decimal` (type only, no
+// precision) would lock the sample-inferred precision/scale as if the user had
+// pinned it. A limited inference sample can under-size a decimal (e.g. only
+// seeing values up to "899" -> decimal(3,1)), so later rows overflow. On
+// databases that honor decimal(P,S) tightly (e.g. StarRocks) this silently
+// saturates values >= 100, corrupting data. See suite.cli test for StarRocks.
+//
+// The fix: an unsized decimal cast pins the *type* (Sourced=true so it survives
+// streaming, per discussion #763) but must NOT lock the inferred precision — it
+// is cleared so downstream inference applies safe minimums. A sized decimal
+// cast (decimal(24,6)) must still pin its precision/scale.
+func TestCoerceUnsizedDecimalCast(t *testing.T) {
+	// an inferred decimal column with an under-sized, sample-derived precision,
+	// mimicking what the 900-row inference sample produces for a column whose
+	// values grow past the sample (e.g. code reaching 1000 in the tail).
+	inferred := func() Columns {
+		return Columns{{
+			Name:        "code",
+			Type:        DecimalType,
+			DbPrecision: 3,
+			DbScale:     1,
+			Stats:       ColumnStats{MaxLen: 3, MaxDecLen: 1, DecCnt: 900, TotalCnt: 900},
+		}}
+	}
+
+	parseCast := func(typeStr string) Column {
+		col := Column{Name: "code", Type: ColumnType(typeStr)}
+		col.SetConstraint()
+		require.NoError(t, col.ParseModifiers())
+		col.SetLengthPrecisionScale()
+		return col
+	}
+
+	t.Run("unsized decimal does not lock inferred precision", func(t *testing.T) {
+		out := inferred().Coerce(Columns{parseCast("decimal")}, true, ColumnCasing(""), dbio.TypeDbStarRocks)
+		col := out[0]
+		assert.True(t, col.IsDecimal())
+		assert.True(t, col.Sourced, "type stays pinned so it survives streaming")
+		// inferred precision must be cleared so downstream widening applies
+		assert.Equal(t, 0, col.DbPrecision, "unsized decimal must not lock sample precision")
+		assert.Equal(t, 0, col.DbScale)
+
+		// downstream native type must widen to a safe default, not decimal(3,1)
+		nt, err := col.GetNativeType(dbio.TypeDbStarRocks, ColumnTyping{})
+		require.NoError(t, err)
+		assert.NotContains(t, nt, "(3,1)", "must not emit the under-sized precision")
+		assert.Contains(t, nt, "decimal(24,6)")
+	})
+
+	t.Run("sized decimal keeps user precision", func(t *testing.T) {
+		out := inferred().Coerce(Columns{parseCast("decimal(24,6)")}, true, ColumnCasing(""), dbio.TypeDbStarRocks)
+		col := out[0]
+		assert.True(t, col.Sourced)
+		assert.Equal(t, 24, col.DbPrecision, "explicit precision must be honored")
+		assert.Equal(t, 6, col.DbScale)
+
+		nt, err := col.GetNativeType(dbio.TypeDbStarRocks, ColumnTyping{})
+		require.NoError(t, err)
+		assert.Contains(t, nt, "decimal(24,6)")
+	})
 }
 
 // Additional test for JSON column typing
