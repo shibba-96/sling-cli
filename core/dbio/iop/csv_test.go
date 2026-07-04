@@ -364,3 +364,33 @@ func TestRecords4(t *testing.T) {
 	g.Info("delta: %d us", end.UnixMicro()-start.UnixMicro())
 	g.Info("%#v", row)
 }
+
+func TestCSVSkipLines(t *testing.T) {
+	configMap := map[string]string{
+		"skip_lines": "4",
+	}
+
+	consume := func() Dataset {
+		file, err := os.Open("test/test1.skiplines.csv")
+		assert.NoError(t, err)
+		ds := NewDatastream(nil)	
+		ds.SetConfig(configMap)
+
+		err = ds.ConsumeCsvReader(bufio.NewReader(file))
+		assert.NoError(t, err)
+
+		data, err := ds.Collect(0)
+		assert.NoError(t, err)
+		return data
+	}
+
+	data := consume()
+
+	// check column names
+	assert.Equal(t, "name", data.Columns[0].Name)
+	assert.Equal(t, "password", data.Columns[1].Name)
+	assert.Equal(t, "file_name", data.Columns[2].Name)
+
+	// asset row count
+	assert.Len(t, data.Rows, 6)
+}

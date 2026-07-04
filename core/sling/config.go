@@ -1670,6 +1670,7 @@ type SourceOptions struct {
 	NullIf         *string             `json:"null_if,omitempty" yaml:"null_if,omitempty"`
 	DatetimeFormat string              `json:"datetime_format,omitempty" yaml:"datetime_format,omitempty"`
 	SkipBlankLines *bool               `json:"skip_blank_lines,omitempty" yaml:"skip_blank_lines,omitempty"`
+	SkipLines      *int                `json:"skip_lines,omitempty" yaml:"skip_lines,omitempty"`
 	Delimiter      string              `json:"delimiter,omitempty" yaml:"delimiter,omitempty"`
 	Escape         string              `json:"escape,omitempty" yaml:"escape,omitempty"`
 	Quote          string              `json:"quote,omitempty" yaml:"quote,omitempty"`
@@ -1880,6 +1881,7 @@ var SourceFileOptionsDefault = SourceOptions{
 	NullIf:         g.String("NULL"),
 	DatetimeFormat: "AUTO",
 	SkipBlankLines: g.Bool(false),
+	SkipLines:      g.Int(0),
 	// Delimiter:      ",",
 	FieldsPerRec: g.Int(-1),
 	MaxDecimals:  g.Int(-1),
@@ -1986,6 +1988,9 @@ func (o *SourceOptions) SetDefaults(sourceOptions SourceOptions) {
 	}
 	if o.SkipBlankLines == nil {
 		o.SkipBlankLines = sourceOptions.SkipBlankLines
+	}
+	if o.SkipLines == nil {
+		o.SkipLines = sourceOptions.SkipLines
 	}
 	if o.Delimiter == "" {
 		o.Delimiter = sourceOptions.Delimiter
