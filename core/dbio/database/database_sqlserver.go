@@ -1103,6 +1103,22 @@ func (conn *MsSQLServerConn) BcpImportFile(tableFName, filePath string) (count u
 		defer os.Remove(tokenFilePath)
 
 		bcpArgs = append(bcpArgs, "-G", "-P", tokenFilePath)
+	} else if fedAuth := conn.FedAuth(); fedAuth == azuread.ActiveDirectoryServicePrincipalAccessToken {
+		// token is already pre-fetched and provided in the `password` property.
+		// deliver it to bcp via a token file (-G -P), same as the other token
+		// paths; do NOT pass it as a plain SQL password (-U/-P).
+		token := conn.GetProp("password")
+		if token == "" {
+			return 0, g.Error("password property must contain the pre-fetched access token for %s auth", fedAuth)
+		}
+
+		tokenFilePath, err := conn.writeBcpTokenFile(token)
+		if err != nil {
+			return 0, g.Error(err, "could not write BCP token file")
+		}
+		defer os.Remove(tokenFilePath)
+
+		bcpArgs = append(bcpArgs, "-G", "-P", tokenFilePath)
 	} else if fedAuth := conn.FedAuth(); g.In(fedAuth, bcpEntraIDMethods()...) {
 		// obtain token via azidentity (supports Workload Identity, Managed Identity, env credentials, etc.)
 		g.Debug("obtaining Entra ID token via azidentity for BCP (fed_auth=%s)", fedAuth)
