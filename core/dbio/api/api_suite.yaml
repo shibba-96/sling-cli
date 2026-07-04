@@ -1204,3 +1204,68 @@
     echoed_watermark: "2026-05-01T00:00:00Z"
   expected_next_state: {}
 
+# Validates that a composite primary_key declared on the spec deduplicates
+# records at the API extraction layer. The mock response returns the same
+# (message_id, group_id, direction) tuple multiple times within a single
+# batch (the scenario that was causing duplicate-key violations on merge);
+# only the first occurrence of each key should reach the stream.
+- id: 26
+  name: test_primary_key_dedup_composite
+  mock_response:
+    data:
+      # message_id=m1 / group_id=g1 / direction=inbound appears 3 times
+      - message_id: m1
+        group_id: g1
+        direction: inbound
+        message: "first"
+      - message_id: m1
+        group_id: g1
+        direction: inbound
+        message: "duplicate of first"
+      - message_id: m1
+        group_id: g1
+        direction: inbound
+        message: "another duplicate"
+      # same message_id+group_id but different direction => distinct key, kept
+      - message_id: m1
+        group_id: g1
+        direction: outbound
+        message: "different direction"
+      # distinct message_id => kept
+      - message_id: m2
+        group_id: g1
+        direction: inbound
+        message: "second message"
+      # exact duplicate of m2 tuple => dropped
+      - message_id: m2
+        group_id: g1
+        direction: inbound
+        message: "duplicate of second"
+  spec:
+    name: test_api
+    authentication:
+      type: none
+    endpoints:
+      test_endpoint:
+        name: test_endpoint
+        response:
+          records:
+            jmespath: data
+            primary_key: [message_id, group_id, direction]
+  # 6 source rows collapse to 3 unique keys; first-seen wins
+  expected_records:
+    - message_id: m1
+      group_id: g1
+      direction: inbound
+      message: "first"
+    - message_id: m1
+      group_id: g1
+      direction: outbound
+      message: "different direction"
+    - message_id: m2
+      group_id: g1
+      direction: inbound
+      message: "second message"
+  expected_state: {}
+  expected_next_state: {}
+

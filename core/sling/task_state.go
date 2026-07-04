@@ -150,6 +150,16 @@ type ExecutionState struct {
 	Error      *string    `json:"error"`
 }
 
+func (es *ExecutionState) Map() (m map[string]any) {
+	if es == nil {
+		return nil
+	}
+
+	m = map[string]any{}
+	g.Unmarshal(g.Marshal(es), &m)
+	return m
+}
+
 type StatusMap struct {
 	Count     int `json:"count"`
 	Success   int `json:"success"`

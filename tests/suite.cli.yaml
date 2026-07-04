@@ -2001,6 +2001,26 @@
   output_contains:
     - 'CDC merge_cdc MySQL test PASSED'
 
+# Redshift merge templates: DELETE/UPDATE targets must not carry a table alias
+# (Redshift grammar has no alias slot for the target). Covers delete_insert,
+# change_capture and change_capture_soft. Offline template rendering is also
+# guarded by TestRedshiftMergeTemplatesNoAlias in the database package; these
+# entries require a reachable REDSHIFT connection so they are commented out by
+# default (Redshift cluster not always available).
+# - id: 210
+#   name: 'Redshift merge delete_insert (no DELETE alias)'
+#   run: 'sling run -d -r tests/replications/r.121.redshift_delete_insert.yaml'
+#   output_contains:
+#     - 'SUCCESS: Redshift delete_insert replaced stale row without DELETE alias error'
+#     - 'execution succeeded'
+#
+# - id: 211
+#   name: 'Redshift CDC change_capture / change_capture_soft (no DELETE/UPDATE alias)'
+#   run: 'sling run -d -p tests/pipelines/cdc/p.36.cdc_merge_redshift.yaml'
+#   output_contains:
+#     - 'CDC merge_cdc Redshift test PASSED'
+#     - 'CDC change_capture_soft Redshift test PASSED'
+
 # MSSQL IDENTITY -> MySQL AUTO_INCREMENT fix: when auto_increment is enabled without
 # primary_key, MySQL requires AUTO_INCREMENT columns to have a KEY - Sling must synthesize one.
 - id: 208
@@ -2415,3 +2435,88 @@
     - committed iceberg snapshot
     - inserted 1 rows
     - 'result => {"t":"08:30:00"}'
+
+- id: 251
+  name: 'Stream sql body: execution.start_time, store.* and state.* render'
+  run: 'sling run -r tests/replications/r.116.stream_sql_runtime_vars.yaml'
+  streams: 2
+  output_contains:
+    - '"exec_rendered":"true"'
+    - '"exec_shared":"true"'
+    - '"store_rendered":"true"'
+    - '"store_nested_rendered":"true"'
+    - '"state_rendered":"true"'
+    - 'execution succeeded'
+
+# DuckDB describe of a missing table must surface the real Catalog Error,
+# not the cryptic "no columns found / could not describe query" (1.5.20 race).
+- id: 301
+  name: 'DuckDB describe missing table surfaces Catalog Error (not "no columns found")'
+  group: duckdb
+  run: 'sling run -p tests/pipelines/p.37.duckdb_describe_missing_table.yaml'
+  output_contains:
+    - 'step (validate) failed'
+    - 'Catalog Error'
+    - 'does not exist'
+  output_does_not_contain:
+    - 'no columns found'
+    - 'no TTY available'
+
+# issue #770: DuckDB local HTTP stream must raise http_timeout on every session
+# (not only when httpfs is registered), else slow sources hit the 30s default.
+- id: 303
+  name: 'DuckDB http stream raises http_timeout on every session (issue #770)'
+  group: duckdb
+  run: 'sling run -d -r tests/replications/r.118.duckdb_http_timeout.yaml'
+  conns:
+    - postgres
+  output_contains:
+    - '✓ All 5,000 rows written to Parquet via DuckDB HTTP stream'
+    - '✓ DuckDB http_timeout raised above the 30s default'
+    - 'execution succeeded'
+
+# MongoDB replica-set / Atlas seed-list URL (comma-separated multi-host authority)
+# must load. Go 1.26+ made url.Parse reject the host list, breaking these URLs.
+- id: 305
+  name: 'MongoDB seed-list URL (multi-host authority) loads without parse error'
+  group: mongodb
+  run: 'sling conns list'
+  env:
+    MONGO_SEEDLIST_TEST: 'mongodb://user:pass@h0.mongodb.net:27017,h1.mongodb.net:27017,h2.mongodb.net:27017/?ssl=true&replicaSet=atlas-abc-shard-0&authSource=admin'
+  output_contains:
+    - 'MONGO_SEEDLIST_TEST'
+    - 'DB - MongoDB'
+  output_does_not_contain:
+    - 'could not parse'
+
+# Oracle sqlldr silently corrupted non-ASCII text (VARCHAR2/NVARCHAR2/CLOB) on the
+# bulk load path: the control file had no CHARACTERSET clause, so SQL*Loader read
+# Sling's UTF-8 CSV using the client NLS_LANG charset and mangled multibyte chars
+# into U+FFFD. Fix: add `CHARACTERSET AL32UTF8` to the sqlldr control template.
+- id: 306
+  name: 'Oracle sqlldr UTF-8 fidelity (https://github.com/slingdata-io/sling-cli/issues/759)'
+  run: 'sling run -d -r tests/replications/r.119.oracle_sqlldr_utf8.yaml'
+  env:
+    SCHEMA: ORACLE
+    SOURCE: ORACLE
+    TARGET: ORACLE
+  output_contains:
+    - 'execution succeeded'
+    - 'SUCCESS: Oracle sqlldr UTF-8 fidelity test passed'
+
+# discussion #763: an explicit column cast (columns: modifier DSL) must be honored
+# end-to-end. The stream processor used to silently revert a user-declared
+# datetime/timestamp column back to string ("column type change for X") when a
+# value didn't parse, making the temp table text while the final DDL kept the
+# declared type. Fix: sourced (explicitly typed) columns keep their type.
+- id: 307
+  name: 'Explicit datetime cast honored end-to-end (discussion #763)'
+  group: duckdb
+  run: 'sling run -d -r tests/replications/r.120.explicit_cast_datetime.yaml'
+  output_contains:
+    - 'rowid target type => TIMESTAMP WITH TIME ZONE'
+    - '✓ explicit timestampz cast honored end-to-end (not reverted to string)'
+    - '✓ all 3 timestamp rows loaded'
+    - 'execution succeeded'
+  output_does_not_contain:
+    - 'column type change for rowid'

@@ -431,6 +431,12 @@ func runTask(cfg *sling.Config, replication *sling.ReplicationConfig) (err error
 		return
 	}
 
+	// re-render stream SQL post start-hooks (store.*/state.* available)
+	if err = cfg.RenderStreamSQL(); err != nil {
+		err = g.Error(err, "could not re-render stream sql")
+		return
+	}
+
 	// try to get project_id
 	setProjectID(cfg.Env["SLING_CONFIG_PATH"])
 	cfg.Env["SLING_PROJECT_ID"] = projectID

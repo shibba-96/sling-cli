@@ -139,7 +139,7 @@ func (ep *Endpoint) Authenticate() (err error) {
 
 	authenticator, err := ep.MakeAuthenticator()
 	if err != nil {
-		return g.Error(err, "could not make authenticator for: %s", authenticator.AuthType())
+		return g.Error(err, "could not make authenticator for: %s", ep.Authentication.Type())
 	}
 
 	if err = authenticator.Authenticate(ep.context.Ctx, &ep.auth); err != nil {
@@ -220,6 +220,8 @@ func (ep *Endpoint) MakeAuthenticator() (authenticator Authenticator, err error)
 		authenticator = &AuthenticatorAWSSigV4{AuthenticatorBase: baseAuth}
 	case AuthTypeHMAC:
 		authenticator = &AuthenticatorHMAC{AuthenticatorBase: baseAuth}
+	default:
+		return nil, g.Error("unsupported authentication type: %s", baseAuth.Type)
 	}
 
 	// so we write all the properties

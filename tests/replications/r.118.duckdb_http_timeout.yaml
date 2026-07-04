@@ -1,0 +1,53 @@
+# issue #770: Postgres -> local Parquet via DuckDB's local HTTP stream must not
+# hit the 30s http_timeout default. Asserts http_timeout is raised on the session.
+source: POSTGRES
+target: LOCAL
+
+hooks:
+  start:
+    - type: query
+      connection: '{source.name}'
+      query: |
+        DROP TABLE IF EXISTS public.duckdb_http_timeout;
+        CREATE TABLE public.duckdb_http_timeout AS
+        SELECT
+          g                                              AS id,
+          md5(g::text)                                   AS name,
+          repeat(md5(g::text), 50)                       AS wide_text
+        FROM generate_series(1, 5000) g;
+
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    # parquet written via the DuckDB HTTP stream
+    - type: query
+      connection: DUCKDB
+      query: |
+        SELECT count(*) AS count
+        FROM read_parquet('/tmp/sling-test-duckdb-http-timeout/*.parquet')
+      into: result
+
+    - type: check
+      check: int_parse(store.result[0].count) == 5000
+      success_message: "✓ All 5,000 rows written to Parquet via DuckDB HTTP stream"
+
+    # http_timeout raised on a bare DuckDB session (core of the #770 fix)
+    - type: query
+      connection: DUCKDB
+      query: SELECT current_setting('http_timeout') AS http_timeout
+      into: timeout_result
+
+    - type: check
+      check: int_parse(store.timeout_result[0].http_timeout) > 30
+      success_message: "✓ DuckDB http_timeout raised above the 30s default"
+
+    - type: query
+      connection: '{source.name}'
+      query: DROP TABLE IF EXISTS public.duckdb_http_timeout
+
+streams:
+  public.duckdb_http_timeout:
+    object: file:///tmp/sling-test-duckdb-http-timeout/data.parquet
+    mode: full-refresh

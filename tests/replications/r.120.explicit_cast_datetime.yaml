@@ -1,0 +1,57 @@
+# discussion #763: an explicit column cast via the columns: modifier DSL must be
+# honored end-to-end. Previously the stream processor silently reverted a
+# user-declared datetime/timestamp column back to string ("column type change
+# for X (timestampz to string)") whenever a value failed to parse as time,
+# leaving the temp table as text while the final table DDL kept the declared
+# type — an inconsistency that also broke valid data. Sourced (explicitly typed)
+# columns must keep their declared type through streaming.
+source: LOCAL
+target: DUCKDB
+
+hooks:
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    # the target rowid column must be a timestamp type (the explicit cast
+    # survived streaming), NOT reverted to varchar/text
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_name = 'explicit_cast_tgt'
+          AND column_name = 'rowid'
+      into: col_type
+
+    - type: log
+      message: "rowid target type => {store.col_type[0].data_type}"
+
+    - type: check
+      check: contains(lower(store.col_type[0].data_type), "timestamp")
+      failure_message: "rowid should be a timestamp type (explicit cast honored), got {store.col_type[0].data_type}"
+      success_message: "✓ explicit timestampz cast honored end-to-end (not reverted to string)"
+
+    # all three timestamps loaded as non-null
+    - type: query
+      connection: '{target.name}'
+      query: SELECT count(*) AS count FROM main.explicit_cast_tgt WHERE rowid IS NOT NULL
+      into: cnt
+
+    - type: check
+      check: int_parse(store.cnt[0].count) == 3
+      failure_message: "expected 3 non-null timestamp rows, got {store.cnt[0].count}"
+      success_message: "✓ all 3 timestamp rows loaded"
+
+    - type: query
+      connection: '{target.name}'
+      query: DROP TABLE IF EXISTS main.explicit_cast_tgt
+
+streams:
+  tests/files/disc763_explicit_cast.csv:
+    object: main.explicit_cast_tgt
+    mode: full-refresh
+    columns:
+      id: integer primary_key
+      rowid: timestampz nullable

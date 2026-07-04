@@ -1,4 +1,22 @@
 routines:
+  # Validates a target table is non-empty. Pipelines call this after a load.
+  # Mirrors the prod validate routine; used by p.37 to assert the DuckDB
+  # describe path surfaces the real Catalog Error for a missing table.
+  # required_params: [connection, table]
+  validate_loaded_rows:
+    - type: query
+      id: cnt
+      connection: "{params.connection}"
+      query: "select count(*) as c from {params.table}"
+
+    - type: check
+      check: state.cnt.result[0].c > 0
+      failure_message: "{params.table} is empty after load"
+      on_failure: warn
+
+    - type: log
+      message: "validate_loaded_rows: {params.table} has {state.cnt.result[0].c} rows"
+
   # Simple routine to test basic functionality
   # required_params: [test_value]
   test_logging:

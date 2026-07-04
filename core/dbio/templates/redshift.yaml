@@ -53,12 +53,11 @@ core:
       SELECT 1 FROM {tgt_table} tgt WHERE {src_tgt_pk_equal}
     )
 
+  # Redshift does not support table aliases in DELETE (https://docs.aws.amazon.com/redshift/latest/dg/r_DELETE.html)
   merge_delete_insert: |
-    DELETE FROM {tgt_table} tgt
-    WHERE EXISTS (
-      SELECT 1 FROM {src_table} src
-      WHERE {src_tgt_pk_equal}
-    );
+    DELETE FROM {tgt_table}
+    USING {src_table} src
+    WHERE {src_tgt_pk_equal_tbl};
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM {src_table} src
 
@@ -66,15 +65,16 @@ core:
   merge_update: null
   merge_update_insert: null
 
+  # Redshift does not support table aliases in DELETE/UPDATE (https://docs.aws.amazon.com/redshift/latest/dg/r_DELETE.html)
   merge_change_capture: |
-    DELETE FROM {tgt_table} tgt
+    DELETE FROM {tgt_table}
     WHERE EXISTS (
       SELECT 1 FROM (
         SELECT *, ROW_NUMBER() OVER (PARTITION BY {pk_fields} ORDER BY _sling_cdc_seq DESC) as _rn
         FROM {src_table}
       ) src
       WHERE src._rn = 1
-      AND {src_tgt_pk_equal}
+      AND {src_tgt_pk_equal_tbl}
     );
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM (
@@ -89,8 +89,9 @@ core:
       ) del WHERE _rn = 1 AND _sling_synced_op = 'D'
     )
 
+  # Redshift does not support table aliases in DELETE/UPDATE (https://docs.aws.amazon.com/redshift/latest/dg/r_DELETE.html)
   merge_change_capture_soft: |
-    UPDATE {tgt_table} tgt SET _sling_synced_at = CURRENT_TIMESTAMP, _sling_synced_op = 'D'
+    UPDATE {tgt_table} SET _sling_synced_at = CURRENT_TIMESTAMP, _sling_synced_op = 'D'
     WHERE _sling_synced_op != 'D'
     AND EXISTS (
       SELECT 1 FROM (
@@ -98,9 +99,9 @@ core:
         FROM {src_table}
       ) src
       WHERE src._rn = 1 AND src._sling_synced_op = 'D'
-      AND {src_tgt_pk_equal}
+      AND {src_tgt_pk_equal_tbl}
     );
-    DELETE FROM {tgt_table} tgt
+    DELETE FROM {tgt_table}
     WHERE EXISTS (
       SELECT 1 FROM (
         SELECT *, ROW_NUMBER() OVER (PARTITION BY {pk_fields} ORDER BY _sling_cdc_seq DESC) as _rn
@@ -108,7 +109,7 @@ core:
         WHERE _sling_synced_op != 'D'
       ) src
       WHERE src._rn = 1
-      AND {src_tgt_pk_equal}
+      AND {src_tgt_pk_equal_tbl}
     );
     INSERT INTO {tgt_table} ({insert_fields})
     SELECT {src_fields} FROM (

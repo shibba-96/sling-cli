@@ -1,6 +1,7 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -29,7 +30,7 @@ import (
 type StarRocksConn struct {
 	BaseConn
 	URL     string
-	fePort  string
+	feHost  string // "host:port" of the redirected CN/BE node; set on first 307
 	version int
 }
 
@@ -583,6 +584,23 @@ func (conn *StarRocksConn) StreamLoad(feURL, tableFName string, df *iop.Dataflow
 
 	g.Debug("stream load headers => %s", g.Marshal(headers))
 
+	// Probe the FE with an empty body to discover the CN URL before streaming any data.
+	// Without this, chunk 1 sends its full body to the FE proxy just to receive a 307
+	// redirect, then re-sends the same body to the CN — doubling upload cost and causing
+	// timeouts on large chunks. An empty PUT triggers the redirect cheaply.
+	if conn.feHost == "" {
+		probeURL := strings.TrimSuffix(applyCreds(fu.U), "/") + g.F("/api/%s/%s/_stream_load", table.Schema, table.Name)
+		probeResp, _, _ := net.ClientDo(http.MethodPut, probeURL, bytes.NewReader([]byte{}), headers, 10)
+		if probeResp != nil && probeResp.StatusCode >= 300 && probeResp.StatusCode <= 399 {
+			if loc, _ := probeResp.Location(); loc != nil {
+				redirectStr := strings.ReplaceAll(loc.String(), "127.0.0.1", fu.U.Hostname())
+				loc, _ = url.Parse(redirectStr)
+				conn.feHost = loc.Host
+				g.Debug("StarRocks CN discovered via probe: %s", conn.feHost)
+			}
+		}
+	}
+
 	var loadedRows uint64
 	loadCtx := g.NewContext(conn.context.Ctx, 3)
 
@@ -598,9 +616,9 @@ func (conn *StarRocksConn) StreamLoad(feURL, tableFName string, df *iop.Dataflow
 		}
 
 		apiURL := strings.TrimSuffix(applyCreds(fu.U), "/") + g.F("/api/%s/%s/_stream_load", table.Schema, table.Name)
-		if conn.fePort != "" {
-			// this is the fix to not freeze, call the redirected port directly
-			apiURL = strings.ReplaceAll(apiURL, fu.U.Port(), conn.fePort)
+		if conn.feHost != "" {
+			// use the redirected CN/BE host:port directly to avoid FE proxy redirect on every chunk
+			apiURL = strings.ReplaceAll(apiURL, fu.U.Host, conn.feHost)
 		}
 
 		resp, respBytes, err := net.ClientDo(http.MethodPut, apiURL, reader, headers, timeout)
@@ -611,7 +629,7 @@ func (conn *StarRocksConn) StreamLoad(feURL, tableFName string, df *iop.Dataflow
 				redirectUrlStr := strings.ReplaceAll(redirectUrl.String(), "127.0.0.1", fu.U.Hostname())
 				redirectUrl, _ = url.Parse(redirectUrlStr)
 				g.Warn("StarRocks redirected the API call to '%s://%s'. Please use that as your FE url.", redirectUrl.Scheme, redirectUrl.Host)
-				conn.fePort = redirectUrl.Port()
+				conn.feHost = redirectUrl.Host
 				reader, _ = os.Open(localFile.Node.Path()) // re-open file since it would be closed
 				_, respBytes, err = net.ClientDo(http.MethodPut, applyCreds(redirectUrl), reader, headers, timeout)
 			}

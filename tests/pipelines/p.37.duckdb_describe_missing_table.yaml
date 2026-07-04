@@ -1,0 +1,36 @@
+# Regression: validating a missing DuckDB table must surface the real
+# DuckDB "Catalog Error" rather than the cryptic "no columns found /
+# could not describe query".
+#
+# Root cause was a race in the DuckDB describe path: the real catalog error is
+# emitted on stderr and captured asynchronously (debounced), so it could land
+# just after the empty (non-error) describe result was returned, causing the
+# generic "no columns found" message to win. The fix waits a bounded grace
+# period for the stderr error to settle.
+#
+# This mirrors a real prod pipeline where a validate routine queried a table
+# that did not exist in the target connection (config mismatch). The validate
+# step warns (table genuinely missing) but with a clear, actionable error;
+# downstream steps are skipped, exactly as in prod.
+
+env:
+  SLING_ROUTINES_DIR: tests/pipelines
+
+steps:
+  # set up a schema with SOME table, but NOT the one validate looks for,
+  # so the describe of the missing table fails with a Catalog Error.
+  - type: query
+    connection: DUCKDB
+    query: |
+      CREATE SCHEMA IF NOT EXISTS demo;
+      DROP TABLE IF EXISTS demo.gh_events;
+      CREATE TABLE IF NOT EXISTS demo.present (id INT);
+
+  # validate a MISSING table via routine; on_failure: warn so the routine
+  # step is recorded as a warning and the real catalog error is surfaced.
+  - id: validate
+    routine: validate_loaded_rows
+    params:
+      connection: DUCKDB
+      table: demo.gh_events
+    on_failure: warn
