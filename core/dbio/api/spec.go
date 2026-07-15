@@ -47,7 +47,7 @@ func LoadSpec(specBody string) (spec Spec, err error) {
 
 	// the top-level `queues:` declaration is deprecated; queues are auto-detected
 	if len(spec.Queues) > 0 {
-		g.Warn("spec field 'queues' is deprecated and ignored — queues are auto-detected from endpoint processors and iterate expressions; please remove the 'queues' field from your spec")
+		g.Debug("spec field 'queues' is deprecated and ignored — queues are auto-detected from endpoint processors and iterate expressions; please remove the 'queues' field from your spec")
 	}
 
 	rootMap := yaml.MapSlice{}
@@ -1049,10 +1049,10 @@ const (
 
 // Iterate is for configuring looping values for requests
 type Iterate struct {
-	Over        any         `yaml:"over" json:"over,omitempty"` // expression
-	Into        string      `yaml:"into" json:"into,omitempty"` // state variable
-	Consume     Consume     `yaml:"consume" json:"consume,omitempty"` // for queues: deferred (default) or immediate
-	Concurrency int         `yaml:"concurrency" json:"concurrency,omitempty"`
+	Over        any     `yaml:"over" json:"over,omitempty"`       // expression
+	Into        string  `yaml:"into" json:"into,omitempty"`       // state variable
+	Consume     Consume `yaml:"consume" json:"consume,omitempty"` // for queues: deferred (default) or immediate
+	Concurrency int     `yaml:"concurrency" json:"concurrency,omitempty"`
 	iterations  chan *Iteration
 }
 
