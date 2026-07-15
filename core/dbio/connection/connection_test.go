@@ -22,11 +22,13 @@ func TestConnectionDiscover(t *testing.T) {
 			connName: "local",
 			pattern:  "../../../tests/files/*.csv",
 			expected: []string{
+				"../../../tests/files/disc763_explicit_cast.csv",
 				"../../../tests/files/test.wide.csv",
 				"../../../tests/files/test1.1.csv",
 				"../../../tests/files/test1.2.csv",
 				"../../../tests/files/test1.csv",
 				"../../../tests/files/test1.result.csv",
+				"../../../tests/files/test1.skiplines.csv",
 				"../../../tests/files/test1.upsert.csv",
 				"../../../tests/files/test2.csv",
 				"../../../tests/files/test4.csv",
