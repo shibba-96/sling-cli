@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/slingdata-io/sling-cli/core/dbio"
+	"github.com/spf13/cast"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -516,6 +517,39 @@ func TestDuckDbDataflowToHttpStream(t *testing.T) {
 		assert.GreaterOrEqual(t, len(parts), 1, "Should have received at least one stream part")
 
 		t.Logf("Test completed - received %d Arrow parts. Implementation uses io.Pipe for streaming.", len(parts))
+	})
+}
+
+// regression guard for issue #770: http_timeout must be raised on every DuckDB
+// session, not only when an S3/httpfs secret registers the extension.
+func TestDuckDbHttpTimeout(t *testing.T) {
+	t.Run("setting SQL always emitted, independent of extensions", func(t *testing.T) {
+		duck := NewDuckDb(context.Background())
+		assert.Contains(t, duck.getSessionSettingsSQL(), "SET http_timeout = 9999")
+
+		// stays present once an httpfs-triggering secret is added
+		duck.AddSecret(NewDuckDbSecret("s3_secret", DuckDbSecretTypeS3, map[string]string{}))
+		assert.Contains(t, duck.getSessionSettingsSQL(), "SET http_timeout = 9999")
+	})
+
+	t.Run("http_timeout prop override", func(t *testing.T) {
+		duck := NewDuckDb(context.Background(), "http_timeout=1234")
+		assert.Contains(t, duck.getSessionSettingsSQL(), "SET http_timeout = 1234")
+	})
+
+	t.Run("timeout actually applied to the live session without httpfs", func(t *testing.T) {
+		// query the live session: http_timeout must be the bumped value, not 30s
+		duck := NewDuckDb(context.Background())
+		defer duck.Close()
+
+		data, err := duck.Query("SELECT current_setting('http_timeout') AS http_timeout")
+		if !assert.NoError(t, err) {
+			return
+		}
+		if assert.Equal(t, 1, len(data.Rows)) {
+			assert.Equal(t, int64(9999), cast.ToInt64(data.Rows[0][0]),
+				"http_timeout should be raised from DuckDB's 30s default")
+		}
 	})
 }
 

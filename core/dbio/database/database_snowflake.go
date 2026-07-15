@@ -169,6 +169,27 @@ func getEncodedPrivateKey(keyStr, passphrase string) (epk string, err error) {
 	// Normalize the input into raw DER (PKCS#8) bytes.
 	var derBytes []byte
 	if block, _ := pem.Decode([]byte(keyStr)); block != nil {
+		// Snowflake key-pair auth requires a PKCS#8 key. The PEM header tells us
+		// whether we have the right format before we attempt to parse it, so we
+		// can return an actionable error for the common wrong-format cases.
+		switch block.Type {
+		case "PRIVATE KEY":
+			// unencrypted PKCS#8 — the expected format
+			if passphrase != "" {
+				return "", g.Error("private key is not encrypted (PEM header is `BEGIN PRIVATE KEY`) but a `private_key_passphrase` was provided. Remove the passphrase, or provide an encrypted key (`BEGIN ENCRYPTED PRIVATE KEY`)")
+			}
+		case "ENCRYPTED PRIVATE KEY":
+			// encrypted PKCS#8 — the expected format, needs a passphrase
+			if passphrase == "" {
+				return "", g.Error("private key is encrypted (PEM header is `BEGIN ENCRYPTED PRIVATE KEY`) but no `private_key_passphrase` was provided. Set `private_key_passphrase`, or provide a decrypted key")
+			}
+		case "RSA PRIVATE KEY":
+			// PKCS#1 — not supported by Snowflake or the pkcs8 parser
+			return "", g.Error("private key is in PKCS#1 format (PEM header is `BEGIN RSA PRIVATE KEY`), but Snowflake key-pair auth requires PKCS#8. Convert it with:\n  openssl pkcs8 -topk8 -inform PEM -in your_key.pem -out rsa_key.p8 -nocrypt\nThe converted file must start with `-----BEGIN PRIVATE KEY-----`. See https://docs.slingdata.io/connections/database-connections/snowflake")
+		case "OPENSSH PRIVATE KEY":
+			// OpenSSH format — not PKCS#8
+			return "", g.Error("private key is in OpenSSH format (PEM header is `BEGIN OPENSSH PRIVATE KEY`), but Snowflake key-pair auth requires PKCS#8. Convert it with:\n  ssh-keygen -p -N '' -m PEM -f your_key    # OpenSSH -> PEM\n  openssl pkcs8 -topk8 -inform PEM -in your_key -out rsa_key.p8 -nocrypt\nThe converted file must start with `-----BEGIN PRIVATE KEY-----`. See https://docs.slingdata.io/connections/database-connections/snowflake")
+		}
 		derBytes = block.Bytes
 	} else if b := decodeBase64Any(keyStr); len(b) > 0 {
 		derBytes = b
@@ -178,7 +199,7 @@ func getEncodedPrivateKey(keyStr, passphrase string) (epk string, err error) {
 
 	key, err := pkcs8.ParsePKCS8PrivateKey(derBytes, []byte(passphrase))
 	if err != nil {
-		return "", g.Error(err, "could not parse private key (expected PEM, base64-encoded DER, or raw DER PKCS#8)")
+		return "", g.Error(err, "could not parse private key. Snowflake key-pair auth requires a PKCS#8 key (PEM starting with `-----BEGIN PRIVATE KEY-----` or `-----BEGIN ENCRYPTED PRIVATE KEY-----`), a base64-encoded DER, or raw DER PKCS#8. Convert other formats with `openssl pkcs8 -topk8`. See https://docs.slingdata.io/connections/database-connections/snowflake")
 	}
 
 	privKeyPem, err := pkcs8.MarshalPrivateKey(key, nil, nil)

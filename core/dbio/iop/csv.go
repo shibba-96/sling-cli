@@ -23,6 +23,7 @@ import (
 type CSV struct {
 	Path            string
 	NoHeader        bool
+	SkipLines       int
 	Delimiter       string
 	Escape          string
 	Quote           string
@@ -186,6 +187,18 @@ func (c *CSV) SetFields(fields []string) {
 
 func (c *CSV) getReader() (r csv.CsvReaderLike, err error) {
 	var reader2, reader3, reader4 io.Reader
+
+	// skip lines before parsing
+	if c.SkipLines > 0 {
+		br := bufio.NewReader(c.Reader)
+		for i := 0; i < c.SkipLines; i++ {
+			if _, err := br.ReadString('\n'); err != nil {
+				g.LogError(err, "could not skip lines")
+				break // EOF — fewer lines than SkipLines
+			}
+		}
+		c.Reader = br
+	}
 
 	testBytes, reader2, err := g.Peek(c.Reader, 0)
 	if err != nil {

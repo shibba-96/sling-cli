@@ -1,0 +1,136 @@
+# Test Oracle sqlldr UTF-8 fidelity (https://github.com/slingdata-io/sling-cli/issues/759)
+# Bug: the sqlldr control file had no CHARACTERSET clause, so SQL*Loader read
+# Sling's UTF-8 CSV using the client NLS_LANG charset (a single-byte default),
+# mangling multibyte chars into U+FFFD (or double-encoding). VARCHAR2/NVARCHAR2/
+# CLOB text was silently corrupted on the bulk (use_bulk=true) path.
+# Fix: add `CHARACTERSET AL32UTF8` to the sqlldr control file template.
+
+source: '{my_source}'
+target: '{my_target}'
+
+defaults:
+  mode: full-refresh
+  # default use_bulk=true -> exercises the sqlldr load path (the corrupting one)
+
+hooks:
+  start:
+    - type: query
+      connection: '{source.name}'
+      query: |
+        BEGIN
+          EXECUTE IMMEDIATE 'DROP TABLE {env.schema}.SLING_UTF_SRC PURGE';
+        EXCEPTION
+          WHEN OTHERS THEN
+            IF SQLCODE != -942 THEN
+              RAISE;
+            END IF;
+        END;
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        CREATE TABLE {env.schema}.SLING_UTF_SRC (
+          id NUMBER,
+          txt  VARCHAR2(20 CHAR),
+          ntxt NVARCHAR2(20),
+          ctxt CLOB
+        )
+
+    # U+00E9 (é) followed by U+00C0 (À): 2 code points, 4 UTF-8 bytes c3 a9 c3 80
+    - type: query
+      connection: '{source.name}'
+      query: |
+        INSERT INTO {env.schema}.SLING_UTF_SRC VALUES (
+          1,
+          unistr('\00E9\00C0'),
+          unistr('\00E9\00C0'),
+          unistr('\00E9\00C0')
+        )
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        BEGIN
+          EXECUTE IMMEDIATE 'DROP TABLE {env.schema}.SLING_UTF_TGT PURGE';
+        EXCEPTION
+          WHEN OTHERS THEN
+            IF SQLCODE != -942 THEN
+              RAISE;
+            END IF;
+        END;
+
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    # raw byte dump of each target column: must be exactly c3,a9,c3,80 (the
+    # UTF-8 bytes for éÀ), NOT ef,bf,bd... (U+FFFD) or a double-encoded form.
+    - type: query
+      connection: '{target.name}'
+      query: |
+        SELECT
+          DUMP(txt,  1016) AS txt_dump,
+          DUMP(ntxt, 1016) AS ntxt_dump,
+          DUMP(TO_CHAR(ctxt), 1016) AS ctxt_dump
+        FROM {env.schema}.SLING_UTF_TGT
+      into: bytes
+
+    - type: log
+      message: |
+        txt_dump  => {store.bytes[0].txt_dump}
+        ntxt_dump => {store.bytes[0].ntxt_dump}
+        ctxt_dump => {store.bytes[0].ctxt_dump}
+
+    - type: check
+      check: contains(store.bytes[0].txt_dump, "c3,a9,c3,80")
+      failure_message: "VARCHAR2 corrupted: {store.bytes[0].txt_dump}"
+
+    - type: check
+      check: contains(store.bytes[0].ntxt_dump, "c3,a9,c3,80")
+      failure_message: "NVARCHAR2 corrupted: {store.bytes[0].ntxt_dump}"
+
+    - type: check
+      check: contains(store.bytes[0].ctxt_dump, "c3,a9,c3,80")
+      failure_message: "CLOB corrupted: {store.bytes[0].ctxt_dump}"
+
+    # guard against the replacement-char corruption specifically
+    - type: check
+      check: '!contains(store.bytes[0].txt_dump, "ef,bf,bd")'
+      failure_message: "VARCHAR2 has U+FFFD replacement chars: {store.bytes[0].txt_dump}"
+
+    - type: log
+      message: "SUCCESS: Oracle sqlldr UTF-8 fidelity test passed"
+
+    - type: query
+      connection: '{source.name}'
+      query: |
+        BEGIN
+          EXECUTE IMMEDIATE 'DROP TABLE {env.schema}.SLING_UTF_SRC PURGE';
+        EXCEPTION
+          WHEN OTHERS THEN
+            IF SQLCODE != -942 THEN
+              RAISE;
+            END IF;
+        END;
+
+    - type: query
+      connection: '{target.name}'
+      query: |
+        BEGIN
+          EXECUTE IMMEDIATE 'DROP TABLE {env.schema}.SLING_UTF_TGT PURGE';
+        EXCEPTION
+          WHEN OTHERS THEN
+            IF SQLCODE != -942 THEN
+              RAISE;
+            END IF;
+        END;
+
+streams:
+  '{schema}.SLING_UTF_SRC':
+    object: '{schema}.SLING_UTF_TGT'
+
+env:
+  schema: ${SCHEMA}
+  my_source: ${SOURCE}
+  my_target: ${TARGET}

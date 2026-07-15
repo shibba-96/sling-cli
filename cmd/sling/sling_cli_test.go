@@ -38,8 +38,46 @@ type testCase struct {
 	Streams string            `yaml:"streams"` // number of streams
 	Fails   string            `yaml:"fails"`   // number of fails
 
+	Suite string `yaml:"suite"` // path to a nested CLI test suite yaml file to merge in
+
 	OutputContains       []string `yaml:"output_contains"`
 	OutputDoesNotContain []string `yaml:"output_does_not_contain"`
+}
+
+// loadCLITestCases reads a CLI test suite yaml file
+func loadCLITestCases(filePath string) ([]testCase, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, g.Error(err, "could not read test suite file: %s", filePath)
+	}
+
+	entries := []testCase{}
+	if err = yaml.Unmarshal(content, &entries); err != nil {
+		return nil, g.Error(err, "could not unmarshal test suite file: %s", filePath)
+	}
+
+	baseDir := filepath.Dir(filePath)
+
+	cases := []testCase{}
+	for _, tc := range entries {
+		if tc.Suite == "" {
+			cases = append(cases, tc)
+			continue
+		}
+
+		nestedPath := tc.Suite
+		if !filepath.IsAbs(nestedPath) {
+			nestedPath = filepath.Join(baseDir, nestedPath)
+		}
+
+		nestedCases, err := loadCLITestCases(nestedPath)
+		if err != nil {
+			return nil, g.Error(err, "could not load nested suite referenced in %s", filePath)
+		}
+		cases = append(cases, nestedCases...)
+	}
+
+	return cases, nil
 }
 
 func TestCLI(t *testing.T) {
@@ -90,13 +128,7 @@ func TestCLI(t *testing.T) {
 
 	// Load tests from suite.cli.yaml
 	filePath := "../../tests/suite.cli.yaml"
-	content, err := os.ReadFile(filePath)
-	if !g.AssertNoError(t, err) {
-		return
-	}
-
-	cases := []testCase{}
-	err = yaml.Unmarshal(content, &cases)
+	cases, err := loadCLITestCases(filePath)
 	if !g.AssertNoError(t, err) {
 		return
 	}

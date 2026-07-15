@@ -266,7 +266,7 @@ func NewConnContext(ctx context.Context, URL string, props ...string) (Connectio
 
 	concurrency := 10
 	if strings.HasPrefix(URL, "postgres") {
-		if strings.Contains(URL, "redshift.amazonaws.com") {
+		if strings.Contains(URL, "redshift.amazonaws.com") || strings.Contains(URL, "redshift-serverless.amazonaws.com") {
 			conn = &RedshiftConn{URL: URL}
 		} else {
 			conn = &PostgresConn{URL: URL}
@@ -3006,6 +3006,7 @@ func (conn *BaseConn) GenerateMergeSQLWithStrategy(srcTable string, tgtTable str
 		"src_table", srcTable,
 		"tgt_table", tgtTable,
 		"src_tgt_pk_equal", mc.Map["src_tgt_pk_equal"],
+		"src_tgt_pk_equal_tbl", mc.Map["src_tgt_pk_equal_tbl"],
 		"src_upd_pk_equal", strings.ReplaceAll(mc.Map["src_tgt_pk_equal"], "tgt.", "upd."),
 		"src_del_pk_equal", strings.ReplaceAll(mc.Map["src_tgt_pk_equal"], "tgt.", "del."),
 		"pk_fields", mc.Map["pk_fields"],
@@ -3169,9 +3170,10 @@ func (conn *BaseConn) GenerateMergeConfigWithStrategy(srcTable string, tgtTable 
 		Strategy: mergeStrategy,
 		Template: "",
 		Map: map[string]string{
-			"src_tgt_pk_equal":    strings.Join(pkEqualFields, " and "),
-			"src_upd_pk_equal":    strings.ReplaceAll(strings.Join(pkEqualFields, ", "), "tgt.", "upd."),
-			"src_del_pk_equal":    strings.ReplaceAll(strings.Join(pkEqualFields, ", "), "tgt.", "del."),
+			"src_tgt_pk_equal":     strings.Join(pkEqualFields, " and "),
+			"src_upd_pk_equal":     strings.ReplaceAll(strings.Join(pkEqualFields, ", "), "tgt.", "upd."),
+			"src_del_pk_equal":     strings.ReplaceAll(strings.Join(pkEqualFields, ", "), "tgt.", "del."),
+			"src_tgt_pk_equal_tbl": strings.ReplaceAll(strings.Join(pkEqualFields, " and "), "tgt.", tgtTable+"."),
 			"src_fields":          strings.Join(srcFields, ", "),
 			"tgt_fields":          strings.Join(tgtFields, ", "),
 			"insert_fields":       strings.Join(insertFields, ", "),

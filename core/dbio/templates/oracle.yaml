@@ -73,6 +73,7 @@ core:
       SKIP_INDEX_MAINTENANCE=true
     )
     LOAD DATA
+    CHARACTERSET AL32UTF8
     INFILE '/dev/stdin'
     APPEND
     INTO TABLE {table}

@@ -882,8 +882,39 @@ func (cfg *Config) Prepare() (err error) {
 	return
 }
 
+// RenderStreamSQL re-renders the source stream SQL with the current format map,
+// after start hooks have run, so store.*/state.* tokens resolve.
+func (cfg *Config) RenderStreamSQL() (err error) {
+	if !cfg.SrcConn.Type.IsDb() {
+		return nil
+	}
+
+	sTable, _ := database.ParseTableName(cfg.Source.Stream, cfg.SrcConn.Type)
+	if !sTable.IsQuery() {
+		return nil
+	}
+
+	fMap, err := cfg.GetFormatMap()
+	if err != nil {
+		return g.Error(err, "could not get format map for sql re-render")
+	}
+
+	rendered, err := cfg.evaluator.RenderString(sTable.SQL, fMap)
+	if err != nil {
+		return g.Error(err, "could not re-render SQL query")
+	}
+
+	cfg.Source.Stream = rendered
+	cfg.Source.Query = rendered
+	if cfg.ReplicationStream != nil {
+		cfg.ReplicationStream.SQL = rendered
+	}
+
+	return nil
+}
+
 func (cfg *Config) initEvaluator() {
-	cfg.evaluator = iop.NewEvaluator(g.ArrStr("env", "target", "source", "stream", "object", "timestamp"))
+	cfg.evaluator = iop.NewEvaluator(g.ArrStr("env", "target", "source", "stream", "object", "timestamp", "execution", "store", "state"))
 	cfg.evaluator.AllowNoPrefix = true
 	cfg.evaluator.KeepMissingExpr = true
 	cfg.evaluator.IgnoreSyntaxErr = true // let's not error if syntax is incorrect
@@ -1025,12 +1056,27 @@ func (cfg *Config) GetFormatMap() (m map[string]any, err error) {
 		m["target_name"] = strings.ToLower(cfg.Target.Conn)
 	}
 
-	if cfg.ReplicationStream != nil {
-		if cfg.ReplicationStream.ID != "" {
-			m["stream_run_id"] = cfg.ReplicationStream.ID
+	execStateMap := map[string]any{}
+	storeMap := map[string]any{}
+	stateMap := map[string]any{}
+	if rs := cfg.ReplicationStream; rs != nil {
+		if rs.ID != "" {
+			m["stream_run_id"] = rs.ID
 		}
-		if cfg.ReplicationStream.Description != "" {
-			m["stream_description"] = cfg.ReplicationStream.Description
+		if rs.Description != "" {
+			m["stream_description"] = rs.Description
+		}
+		if r := rs.replication; r != nil && r.state != nil {
+			execStateMap = r.state.Execution.Map()
+			for k, v := range r.state.Store {
+				storeMap[k] = v
+			}
+			// normalize nested maps to map[string]any for jmespath traversal
+			for k, v := range r.state.State {
+				inner := map[string]any{}
+				g.Unmarshal(g.Marshal(v), &inner)
+				stateMap[k] = inner
+			}
 		}
 	}
 
@@ -1261,11 +1307,14 @@ func (cfg *Config) GetFormatMap() (m map[string]any, err error) {
 			"date":      now.Format(time.DateOnly),
 			"datetime":  now.Format(time.DateTime),
 		},
-		"env":    envMap,
-		"source": {},
-		"target": {},
-		"stream": {},
-		"object": {},
+		"env":       envMap,
+		"execution": execStateMap,
+		"store":     storeMap,
+		"state":     stateMap,
+		"source":    {},
+		"target":    {},
+		"stream":    {},
+		"object":    {},
 	}
 
 	// apply date variables
@@ -1621,6 +1670,7 @@ type SourceOptions struct {
 	NullIf         *string             `json:"null_if,omitempty" yaml:"null_if,omitempty"`
 	DatetimeFormat string              `json:"datetime_format,omitempty" yaml:"datetime_format,omitempty"`
 	SkipBlankLines *bool               `json:"skip_blank_lines,omitempty" yaml:"skip_blank_lines,omitempty"`
+	SkipLines      *int                `json:"skip_lines,omitempty" yaml:"skip_lines,omitempty"`
 	Delimiter      string              `json:"delimiter,omitempty" yaml:"delimiter,omitempty"`
 	Escape         string              `json:"escape,omitempty" yaml:"escape,omitempty"`
 	Quote          string              `json:"quote,omitempty" yaml:"quote,omitempty"`
@@ -1831,6 +1881,7 @@ var SourceFileOptionsDefault = SourceOptions{
 	NullIf:         g.String("NULL"),
 	DatetimeFormat: "AUTO",
 	SkipBlankLines: g.Bool(false),
+	SkipLines:      g.Int(0),
 	// Delimiter:      ",",
 	FieldsPerRec: g.Int(-1),
 	MaxDecimals:  g.Int(-1),
@@ -1937,6 +1988,9 @@ func (o *SourceOptions) SetDefaults(sourceOptions SourceOptions) {
 	}
 	if o.SkipBlankLines == nil {
 		o.SkipBlankLines = sourceOptions.SkipBlankLines
+	}
+	if o.SkipLines == nil {
+		o.SkipLines = sourceOptions.SkipLines
 	}
 	if o.Delimiter == "" {
 		o.Delimiter = sourceOptions.Delimiter

@@ -1179,6 +1179,9 @@ func (rd *ReplicationConfig) Compile(cfgOverwrite *Config, selectStreams ...stri
 		return g.Error("cannot include and exclude tags. Either include or exclude.")
 	}
 
+	// init state for prepare use
+	rd.initRuntimeState(nil)
+
 	for _, name := range rd.StreamsOrdered() {
 
 		stream := ReplicationStreamConfig{}

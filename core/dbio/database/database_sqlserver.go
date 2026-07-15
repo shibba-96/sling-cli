@@ -3,7 +3,9 @@ package database
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
+	stdurl "net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -291,12 +293,96 @@ func (conn *MsSQLServerConn) FedAuth() string {
 	return conn.GetProp("fedauth", "fed_auth")
 }
 
+// connectAccessToken connects using a pre-fetched Azure AD access token via
+// mssql.NewAccessTokenConnector, which is the correct approach per
+// https://github.com/microsoft/go-mssqldb#azure-active-directory-authentication
+//
+// The access token is expected in the "password" connection property.
+// fedauth=ActiveDirectoryServicePrincipalAccessToken must NOT be forwarded to
+// the DSN because the token is delivered through the security-token protocol
+// extension, not the URL.
+func (conn *MsSQLServerConn) connectAccessToken(timeOut ...int) error {
+	ctx := conn.Context().Ctx
+
+	accessToken := conn.GetProp("password")
+	if accessToken == "" {
+		return g.Error("password property must contain the pre-fetched access token for ActiveDirectoryServicePrincipalAccessToken auth")
+	}
+
+	// Build a clean sqlserver:// DSN without fedauth and without the token in
+	// the password field.  NewAccessTokenConnector delivers the token through
+	// the TDS security-token extension, so embedding it in the URL is both
+	// unnecessary and causes connection failures (as seen in the trace log).
+	//
+	// Use ConnString() (not GetURL()) so that connection properties like
+	// encrypt, TrustServerCertificate, host, database, port, dial_timeout
+	// are all resolved into the DSN before we strip fedauth.
+	U, _ := net.NewURL(conn.ConnString())
+	U.PopParam("fedauth")
+	U.PopParam("fed_auth")
+	// Remove the token from the URL user-info; the underlying *url.URL is
+	// accessed directly because net.URL has no SetPassword helper.
+	if U.U != nil {
+		username := U.U.User.Username()
+		U.U.User = stdurl.User(username)
+	}
+	// Ensure a dial timeout is set so TCP hangs don't block indefinitely.
+	// Use the same timeout value we'll use for the ping context.
+	timeout := 15
+	if len(timeOut) > 0 && timeOut[0] > 0 {
+		timeout = timeOut[0]
+	}
+	if U.GetParam("dial+timeout") == "" && U.GetParam("dial timeout") == "" {
+		U.SetParam("dial timeout", cast.ToString(timeout))
+	}
+
+	dsn := U.String()
+	g.Trace("connectAccessToken: dsn=%s", dsn)
+
+	connector, err := mssql.NewAccessTokenConnector(dsn, func() (string, error) {
+		return accessToken, nil
+	})
+	if err != nil {
+		return g.Error(err, "could not create SQL Server access-token connector")
+	}
+
+	sqlDB := sql.OpenDB(connector)
+	conn.db = sqlx.NewDb(sqlDB, "sqlserver")
+
+	// Limit to 1 connection during the ping so we don't flood with concurrent
+	// dial attempts before we know the connection works.
+	conn.db.SetMaxOpenConns(1)
+
+	pingCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	if err = conn.db.PingContext(pingCtx); err != nil {
+		return g.Error(err, "could not connect to SQL Server using access token")
+	}
+
+	// Ping succeeded — now configure the pool for normal operation.
+	maxConns := cast.ToInt(conn.GetProp("max_conns"))
+	if maxConns == 0 {
+		maxConns = 25
+	}
+	conn.db.SetMaxOpenConns(maxConns)
+	conn.db.SetMaxIdleConns(maxConns / 4)
+	conn.db.SetConnMaxLifetime(30 * time.Minute)
+	conn.db.SetConnMaxIdleTime(5 * time.Minute)
+
+	conn.postConnect()
+
+	return nil
+}
+
 func (conn *MsSQLServerConn) Connect(timeOut ...int) (err error) {
 
 	// Check if this is a Cloud SQL connection
 	if conn.GetProp("gcp_instance") != "" {
 		conn.isCloudSQL = true
 		err = conn.connectCloudSQL(timeOut...)
+	} else if conn.FedAuth() == "ActiveDirectoryServicePrincipalAccessToken" {
+		err = conn.connectAccessToken(timeOut...)
 	} else {
 		err = conn.BaseConn.Connect(timeOut...)
 	}
@@ -1010,6 +1096,22 @@ func (conn *MsSQLServerConn) BcpImportFile(tableFName, filePath string) (count u
 		}
 
 		token := strings.TrimSpace(string(output))
+		tokenFilePath, err := conn.writeBcpTokenFile(token)
+		if err != nil {
+			return 0, g.Error(err, "could not write BCP token file")
+		}
+		defer os.Remove(tokenFilePath)
+
+		bcpArgs = append(bcpArgs, "-G", "-P", tokenFilePath)
+	} else if fedAuth := conn.FedAuth(); fedAuth == azuread.ActiveDirectoryServicePrincipalAccessToken {
+		// token is already pre-fetched and provided in the `password` property.
+		// deliver it to bcp via a token file (-G -P), same as the other token
+		// paths; do NOT pass it as a plain SQL password (-U/-P).
+		token := conn.GetProp("password")
+		if token == "" {
+			return 0, g.Error("password property must contain the pre-fetched access token for %s auth", fedAuth)
+		}
+
 		tokenFilePath, err := conn.writeBcpTokenFile(token)
 		if err != nil {
 			return 0, g.Error(err, "could not write BCP token file")

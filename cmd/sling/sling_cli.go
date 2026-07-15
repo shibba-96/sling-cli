@@ -450,7 +450,10 @@ func init() {
 }
 
 func Track(event string, props ...map[string]interface{}) {
-	if !telemetry || core.Version == "dev" {
+	if !telemetry {
+		g.Trace("skipping telemetry report (SLING_DISABLE_TELEMETRY=true)")
+		return
+	} else if core.Version == "dev" {
 		return
 	}
 

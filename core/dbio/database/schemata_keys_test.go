@@ -199,6 +199,68 @@ table_keys:
 	assert.Equal(t, "idx_x", defs[0].Name)
 }
 
+// TestTableKeysPrimaryUniqueComposite verifies that the composite/wrapped-list
+// form (e.g. primary: [[user_id, brand_id]]) is accepted for the primary and
+// unique keys and flattened to the same flat []string as the plain list form.
+// This is the shape reported failing in datatype.go SetKeys ("could not set
+// primary key. Did not find column").
+func TestTableKeysPrimaryUniqueComposite(t *testing.T) {
+	// wrapped composite form
+	tk := tkFromYAML(t, `
+table_keys:
+  primary: [[user_id, brand_id]]
+  unique: [[org_id, project_id]]
+`)
+	assert.Equal(t, []string{"user_id", "brand_id"}, []string(tk[iop.PrimaryKey]))
+	assert.Equal(t, []string{"org_id", "project_id"}, []string(tk[iop.UniqueKey]))
+
+	// flat form still works identically
+	tkFlat := tkFromYAML(t, `
+table_keys:
+  primary: [user_id, brand_id]
+  unique: [org_id, project_id]
+`)
+	assert.Equal(t, []string(tk[iop.PrimaryKey]), []string(tkFlat[iop.PrimaryKey]))
+	assert.Equal(t, []string(tk[iop.UniqueKey]), []string(tkFlat[iop.UniqueKey]))
+
+	// single-column scalar form
+	tkScalar := tkFromYAML(t, `
+table_keys:
+  primary: user_id
+`)
+	assert.Equal(t, []string{"user_id"}, []string(tkScalar[iop.PrimaryKey]))
+
+	// deeply-nested lists flatten too (robustness)
+	tkNested := tkFromYAML(t, `
+table_keys:
+  primary: [[user_id], [brand_id]]
+`)
+	assert.Equal(t, []string{"user_id", "brand_id"}, []string(tkNested[iop.PrimaryKey]))
+}
+
+// TestTableKeysCompositeSetKeys verifies that after parsing the composite form,
+// SetKeys successfully marks the columns (previously failed with a phantom
+// "[user_id brand_id]" column name).
+func TestTableKeysCompositeSetKeys(t *testing.T) {
+	tk := tkFromYAML(t, `
+table_keys:
+  primary: [[user_id, brand_id]]
+  unique: [[org_id]]
+`)
+
+	cols := iop.Columns{
+		{Name: "id"}, {Name: "user_id"}, {Name: "brand_id"}, {Name: "org_id"},
+	}
+
+	tbl := &Table{Name: "mytable", Schema: "public", Dialect: dbio.TypeDbPostgres, Columns: cols}
+	require.NoError(t, tbl.SetKeys(nil, "", tk))
+
+	assert.True(t, tbl.Columns.GetColumn("user_id").IsKeyType(iop.PrimaryKey))
+	assert.True(t, tbl.Columns.GetColumn("brand_id").IsKeyType(iop.PrimaryKey))
+	assert.True(t, tbl.Columns.GetColumn("org_id").IsKeyType(iop.UniqueKey))
+	assert.False(t, tbl.Columns.GetColumn("id").IsKeyType(iop.PrimaryKey))
+}
+
 func TestParseIndexesMutualExclusion(t *testing.T) {
 	tk := tkFromYAML(t, `
 table_keys:

@@ -710,6 +710,12 @@ func (cols Columns) Coerce(castCols Columns, hasHeader bool, casing ColumnCasing
 			newCols[i].DbPrecision = lo.Ternary(col.DbPrecision > 0, col.DbPrecision, newCols[i].DbPrecision)
 			newCols[i].DbScale = lo.Ternary(col.DbScale > 0, col.DbScale, newCols[i].DbScale)
 			newCols[i].Sourced = true
+			// see note below: don't lock a sample-inferred precision for an
+			// unsized decimal cast, or later rows can silently overflow.
+			if newCols[i].Type.IsDecimal() && col.DbPrecision == 0 {
+				newCols[i].DbPrecision = 0
+				newCols[i].DbScale = 0
+			}
 			newCols[i].mergeDDLMetadata(col)
 			if !newCols[i].Type.IsValid() {
 				g.Warn("Provided unknown column type (%s) for column '%s'. Using string.", newCols[i].Type, newCols[i].Name)
@@ -736,6 +742,18 @@ func (cols Columns) Coerce(castCols Columns, hasHeader bool, casing ColumnCasing
 				newCols[i].DbPrecision = lo.Ternary(col.DbPrecision > 0, col.DbPrecision, newCols[i].DbPrecision)
 				newCols[i].DbScale = lo.Ternary(col.DbScale > 0, col.DbScale, newCols[i].DbScale)
 				newCols[i].Sourced = true
+
+				// If the user pinned a decimal's *type* without a precision (e.g.
+				// `code: decimal`), do not lock the sample-inferred precision/scale as
+				// if it were user-specified — a limited sample can under-size it and
+				// silently overflow later rows (e.g. StarRocks decimal(3,1) saturating
+				// values >= 100). Clear the inferred precision so downstream inference
+				// applies safe minimums, while keeping Sourced=true so the decimal type
+				// itself still survives streaming (see discussion #763).
+				if newCols[i].Type.IsDecimal() && col.DbPrecision == 0 {
+					newCols[i].DbPrecision = 0
+					newCols[i].DbScale = 0
+				}
 			} else {
 				g.Warn("Provided unknown column type (%s) for column '%s'. Using string.", col.Type, col.Name)
 				newCols[i].Type = StringType

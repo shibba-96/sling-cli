@@ -1,0 +1,72 @@
+# Redshift delete_insert merge strategy
+# Regression test for the DELETE alias bug: Redshift does not allow a table
+# alias on the DELETE/UPDATE target, so the merge templates must use the
+# USING clause / fully-qualified correlation instead of `DELETE FROM tgt tgt`.
+# See https://docs.aws.amazon.com/redshift/latest/dg/r_DELETE.html
+#
+# Note: requires a reachable REDSHIFT connection; skipped by default in the suite.
+
+source: postgres
+target: redshift
+
+defaults:
+  mode: incremental
+  primary_key: id
+
+hooks:
+  start:
+    # source: initial rows 1,2 then an updated row 1 + new row 3
+    - type: query
+      connection: '{source.name}'
+      query: |
+        DROP TABLE IF EXISTS public.rs_delete_insert_src;
+        CREATE TABLE public.rs_delete_insert_src (id int PRIMARY KEY, val text);
+        INSERT INTO public.rs_delete_insert_src VALUES (1, 'a1'), (2, 'b1');
+
+    # target: pre-populate with stale row 1 to prove delete+insert replaces it
+    - type: query
+      connection: '{target.name}'
+      query: |
+        DROP TABLE IF EXISTS public.rs_delete_insert;
+        CREATE TABLE public.rs_delete_insert (id int, val text);
+        INSERT INTO public.rs_delete_insert VALUES (1, 'stale');
+
+  end:
+    - type: check
+      check: execution.status.error == 0
+      on_failure: break
+
+    - type: query
+      connection: '{target.name}'
+      query: SELECT id, val FROM public.rs_delete_insert ORDER BY id
+      into: rows
+
+    - type: log
+      message: 'store.rows => {store.rows}'
+
+    # row 1 must be replaced (a1, not stale) and row 2 inserted -> 2 rows total
+    - type: check
+      check: length(store.rows) == 2
+      message: 'expected 2 rows, got {length(store.rows)}'
+
+    - type: check
+      check: store.rows[0].val == "a1"
+      message: 'id=1 should be replaced with val=a1 (delete+insert), got {store.rows[0].val}'
+
+    - type: log
+      message: 'SUCCESS: Redshift delete_insert replaced stale row without DELETE alias error'
+
+    # cleanup
+    - type: query
+      connection: '{source.name}'
+      query: DROP TABLE IF EXISTS public.rs_delete_insert_src
+
+    - type: query
+      connection: '{target.name}'
+      query: DROP TABLE IF EXISTS public.rs_delete_insert
+
+streams:
+  public.rs_delete_insert_src:
+    object: public.rs_delete_insert
+    target_options:
+      merge_strategy: delete_insert
